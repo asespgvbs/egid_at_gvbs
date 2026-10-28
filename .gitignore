@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# GVBS-Daten und Matching-Ergebnisse
+*.xlsx
+*.xls
+*.csv
+*.sqlite
+*.sqlite3
+*.db
+
+# Lokale Konfiguration
+.env
+.env.*
