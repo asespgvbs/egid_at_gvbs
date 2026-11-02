@@ -87,16 +87,9 @@ CATEGORIES = [
         "Keine automatische Zuordnung.",
     ),
     (
-        "review_parcel",
-        "Historische Kategorie für zusätzliche EGIDs "
-        "auf derselben EGRID.",
-        "Wird aktuell nicht vergeben. Die Fälle werden "
-        "durch super_match oder andere Prüfkategorien erfasst.",
-    ),
-    (
-        "review_missing_egrid",
+        "invalid_gwr_data",
         "Genau ein EGID-Kandidat vorhanden, aber keine "
-        "verwertbare EGRID im GWR hinterlegt.",
+        "verwertbare EGRID im GWR hinterlegt (GWR-Datenfehler).",
         "Keine automatische Zuordnung. Daten prüfen.",
     ),
     (
@@ -124,10 +117,8 @@ AUTO_CATEGORIES = {
 def txt(value):
     if value is None:
         return ""
-
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
-
     return str(value).strip()
 
 
@@ -200,7 +191,7 @@ def is_address_suffix(gvbs_number, gwr_number):
     GVBS 30 -> GWR 30      Nein
     GVBS 30 -> GWR 31      Nein
     GVBS 30 -> GWR 300     Nein
-    GVBS 30 -> GWR 30.    Nein
+    GVBS 30 -> GWR 30.     Nein
     GVBS 30 -> GWR 30/31   Nein
 
     Der Vergleich ist gerichtet: Die GVBS-Hausnummer
@@ -513,10 +504,7 @@ def super_match_reasons(
         egid_grids.get(egid, set())
     )
 
-    # --------------------------------------------------------
     # GRUND 1: MEHRERE GWR-ADRESSEN
-    # --------------------------------------------------------
-
     if len(gwr_addresses) > 1:
         reasons.append(
             "Die EGID besitzt "
@@ -524,10 +512,7 @@ def super_match_reasons(
             f"{list_text(address_text(a) for a in gwr_addresses)}."
         )
 
-    # --------------------------------------------------------
     # GRUND 2: MEHRERE EGRIDs
-    # --------------------------------------------------------
-
     if len(grids) > 1:
         reasons.append(
             "Für diese EGID sind "
@@ -535,10 +520,7 @@ def super_match_reasons(
             f"hinterlegt: {list_text(grids)}."
         )
 
-    # --------------------------------------------------------
     # GRUND 3: WEITERE EGIDs AUF DERSELBEN EGRID
-    # --------------------------------------------------------
-
     for grid in grids:
         other_egids = sorted_egids(
             grid_egids.get(grid, set()) - {egid}
@@ -593,7 +575,6 @@ def create_summary(
             "Die Eingabedaten sind unvollständig. "
             "Eine zuverlässige Zuordnung ist nicht möglich."
         )
-
         return " ".join(parts)
 
     if not candidates:
@@ -615,10 +596,7 @@ def create_summary(
         f"{list_text(candidates)}."
     )
 
-    # --------------------------------------------------------
     # ALLE DIREKTEN EGID-KANDIDATEN DOKUMENTIEREN
-    # --------------------------------------------------------
-
     for egid in candidates:
         gwr_addresses = sorted(
             egid_addresses.get(egid, set())
@@ -640,10 +618,7 @@ def create_summary(
             f"hinterlegt: {list_text(egid_grid_values)}."
         )
 
-        # ----------------------------------------------------
         # ALLE EGIDs AUF DEN EGRIDs DOKUMENTIEREN
-        # ----------------------------------------------------
-
         for grid in egid_grid_values:
             other_egids = sorted_egids(
                 grid_egids.get(grid, set()) - {egid}
@@ -674,10 +649,7 @@ def create_summary(
                     "im verwendeten GWR-Datensatz."
                 )
 
-        # ----------------------------------------------------
         # KONKURRIERENDE GVBSIDs DOKUMENTIEREN
-        # ----------------------------------------------------
-
         related_gvbsids = sorted(
             gvbs_by_egid.get(egid, set()),
             key=gvbsid_text,
@@ -706,10 +678,7 @@ def create_summary(
                 + "."
             )
 
-    # --------------------------------------------------------
     # KATEGORIENSPEZIFISCHE BEWERTUNG
-    # --------------------------------------------------------
-
     if category == "perfect_match":
         parts.append(
             "Bewertung: perfect_match. "
@@ -832,12 +801,13 @@ def create_summary(
             "Eine automatische Zuordnung ist nicht möglich."
         )
 
-    elif category == "review_missing_egrid":
+    elif category == "invalid_gwr_data":
         parts.append(
-            "Bewertung: review_missing_egrid. "
+            "Bewertung: invalid_gwr_data. "
             "Es wurde genau ein EGID-Kandidat gefunden, "
             "aber keine EGRID ist hinterlegt. "
-            "Die Zuordnung wird zur Prüfung zurückgestellt."
+            "Die GWR-Daten müssen geprüft werden. "
+            "Es erfolgt keine automatische EGID-Zuordnung."
         )
 
     else:
@@ -860,10 +830,7 @@ def match(
     egid_grids,
     grid_egids,
 ):
-    # --------------------------------------------------------
     # GVBS-ADRESSEN UND GVBSIDs AUFBEREITEN
-    # --------------------------------------------------------
-
     keys = [
         address(
             record["Strasse"],
@@ -889,10 +856,7 @@ def match(
         )
     ]
 
-    # --------------------------------------------------------
     # GESAMTEN GVBS-DATENSATZ ANALYSIEREN
-    # --------------------------------------------------------
-
     gvbs_by_address = defaultdict(set)
     gvbs_by_egid = defaultdict(set)
     gvbs_addresses_by_id = defaultdict(set)
@@ -917,10 +881,7 @@ def match(
             egid = next(iter(candidates))
             gvbs_by_egid[egid].add(gvbs_key)
 
-    # --------------------------------------------------------
     # EINZELNE DATENSÄTZE BEWERTEN
-    # --------------------------------------------------------
-
     results = []
 
     for record, key, gvbs_key, ok in zip(
@@ -1005,10 +966,7 @@ def match(
             else None
         )
 
-        # ----------------------------------------------------
-        # NEU: HAUSNUMMERNZUSÄTZE PRÜFEN
-        # ----------------------------------------------------
-
+        # HAUSNUMMERNZUSÄTZE PRÜFEN
         suffix_conflicts = []
 
         if (
@@ -1025,10 +983,7 @@ def match(
                 gvbs_by_address=gvbs_by_address,
             )
 
-        # ----------------------------------------------------
         # KATEGORIE BESTIMMEN
-        # ----------------------------------------------------
-
         if not ok:
             category = "invalid_input"
 
@@ -1053,11 +1008,7 @@ def match(
             )
 
         elif not grids:
-            category = "review_missing_egrid"
-
-        # ----------------------------------------------------
-        # NEUE KATEGORIE VOR PERFECT UND SUPER MATCH
-        # ----------------------------------------------------
+            category = "invalid_gwr_data"
 
         elif suffix_conflicts:
             category = "review_address_suffix"
@@ -1072,20 +1023,14 @@ def match(
         else:
             category = "super_match"
 
-        # ----------------------------------------------------
         # AUTOMATISCHE EGID-ZUORDNUNG
-        # ----------------------------------------------------
-
         assigned_egid = (
             direct_egid
             if category in AUTO_CATEGORIES
             else None
         )
 
-        # ----------------------------------------------------
         # KOMPAKTER KOMMENTAR
-        # ----------------------------------------------------
-
         comment_parts = [
             anzahl_text(
                 n_gvbs_at_address,
@@ -1200,10 +1145,7 @@ def match(
                 "GVBS-Adressen beanspruchen dieselbe EGID."
             )
 
-        # ----------------------------------------------------
         # AUSFÜHRLICHE ZUSAMMENFASSUNG
-        # ----------------------------------------------------
-
         summary = create_summary(
             gvbsid=gvbsid_text(gvbs_key),
             gvbs_address=key,
@@ -1219,10 +1161,7 @@ def match(
             suffix_conflicts=suffix_conflicts,
         )
 
-        # ----------------------------------------------------
         # ZUSÄTZLICHE EGIDs AUS HAUSNUMMERNZUSÄTZEN
-        # ----------------------------------------------------
-
         suffix_egids = sorted_egids({
             conflict["EGID"]
             for conflict in suffix_conflicts
@@ -1238,10 +1177,7 @@ def match(
             for conflict in suffix_conflicts
         })
 
-        # ----------------------------------------------------
         # ERGEBNIS
-        # ----------------------------------------------------
-
         results.append({
             **record,
 
@@ -1292,10 +1228,6 @@ def match(
                 "Ja"
                 if assigned_egid is not None
                 else "Nein",
-
-            # -----------------------------------------------
-            # NEUE SPALTEN FÜR HAUSNUMMERNZUSÄTZE
-            # -----------------------------------------------
 
             "Anzahl EGID mit Hausnummernzusatz":
                 len(suffix_egids),
@@ -1371,10 +1303,7 @@ def save_excel(path, headers, results):
             for column in columns
         ])
 
-    # --------------------------------------------------------
     # ZUSAMMENFASSUNG
-    # --------------------------------------------------------
-
     summary = wb.create_sheet(
         "Zusammenfassung"
     )
@@ -1416,10 +1345,7 @@ def save_excel(path, headers, results):
         ),
     ])
 
-    # --------------------------------------------------------
     # KATEGORIEN-HINWEISE
-    # --------------------------------------------------------
-
     notes = wb.create_sheet(
         "Kategorien-Hinweise"
     )
@@ -1539,10 +1465,7 @@ def save_excel(path, headers, results):
         "",
     ])
 
-    # --------------------------------------------------------
     # FORMATIERUNG
-    # --------------------------------------------------------
-
     for sheet in wb.worksheets:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
@@ -1597,10 +1520,7 @@ def save_excel(path, headers, results):
 
         ws.column_dimensions[letter].width = width
 
-    # --------------------------------------------------------
     # KATEGORIEN EINFÄRBEN
-    # --------------------------------------------------------
-
     for row in ws.iter_rows(min_row=2):
         category = None
 
