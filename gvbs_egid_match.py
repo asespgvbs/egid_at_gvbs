@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 # KONFIGURATION
 # ============================================================
 
-GWR_DB = Path(
+DEFAULT_GWR_DB = Path(
     r"C:\dev\private\gvbs_dash\gwr_daten_bs\data.sqlite"
 )
 
@@ -28,74 +28,100 @@ REQUIRED = (
 CATEGORIES = [
     (
         "perfect_match",
-        "Genau eine EGID stimmt mit der GVBS-Adresse überein. "
-        "Die EGID besitzt genau eine GWR-Adresse, eine EGRID "
-        "und keine weitere bestehende EGID auf dieser EGRID. "
-        "Keine andere GVBSID hat dieselbe EGID als eindeutigen "
-        "Adresstreffer.",
-        "Automatische Zuordnung.",
+        "Genau eine GVBSID an der GVBS-Adresse und genau ein "
+        "EGID-Kandidat. Die EGID besitzt genau eine GWR-Adresse, "
+        "genau eine EGRID und ist die einzige bestehende EGID "
+        "auf dieser EGRID. Keine andere GVBSID beansprucht "
+        "dieselbe EGID.",
+        "EGID automatisch zuordnen.",
     ),
     (
-        "good_match",
-        "Eine EGID mit mehreren nachgewiesenen EGRIDs.",
-        "Reserviert, da die verfügbaren GWR-Daten "
-        "Mehrfach-Grundstücksbeziehungen nicht vollständig abbilden.",
+        "super_match",
+        "Genau eine GVBSID an der GVBS-Adresse und genau ein "
+        "EGID-Kandidat. Keine andere GVBSID beansprucht dieselbe "
+        "EGID. Die Bedingungen für perfect_match sind jedoch "
+        "nicht vollständig erfüllt, beispielsweise wegen "
+        "mehrerer GWR-Adressen, weiterer EGIDs auf derselben "
+        "EGRID oder mehrerer EGRIDs. Es liegt kein erkannter "
+        "Konflikt mit Hausnummernzusätzen vor.",
+        "EGID automatisch zuordnen. Alle Abweichungen von "
+        "perfect_match einzeln begründen.",
     ),
     (
-        "multiple_addresses_one_egid",
-        "Eine EGID wurde über die GVBS-Adresse gefunden, "
-        "besitzt aber mehrere unterschiedliche GWR-Adressen.",
-        "Manuell prüfen.",
+        "review_address_suffix",
+        "Eine GVBSID besitzt einen eindeutigen direkten "
+        "EGID-Adresstreffer. Auf derselben EGRID befindet sich "
+        "mindestens eine weitere EGID mit derselben Strasse "
+        "und PLZ sowie einer Hausnummer, die durch einen "
+        "Zusatz aus der GVBS-Hausnummer entsteht. Für diese "
+        "zusätzliche Adresse ist keine eigene GVBSID im "
+        "eingelesenen Datensatz vorhanden.",
+        "Keine automatische Zuordnung. Prüfen, ob die GVBSID "
+        "mehrere EGIDs umfasst.",
     ),
     (
-        "multiple_egid",
-        "Mehrere EGIDs besitzen eine GWR-Adresse, "
-        "die mit der GVBS-Adresse übereinstimmt.",
-        "Manuell prüfen.",
-    ),
-    (
-        "multiple_gvbsid_multiple_egid",
-        "Mehrere GVBSIDs besitzen dieselbe GVBS-Adresse, "
-        "für die mehrere EGIDs im GWR gefunden wurden.",
-        "Manuell prüfen.",
+        "multiple_gvbsid_same_address_one_egid",
+        "Mehrere unterschiedliche GVBSIDs besitzen dieselbe "
+        "GVBS-Adresse und haben dieselbe EGID als einzigen "
+        "Adresskandidaten. Es liegt keine zusätzliche "
+        "konkurrierende GVBS-Adresse vor.",
+        "Keine automatische Zuordnung. Mehrfacherfassung prüfen.",
     ),
     (
         "multiple_gvbsid_one_egid",
-        "Mehrere GVBSIDs haben dieselbe EGID "
-        "als eindeutigen Adresstreffer.",
-        "Mögliche n:1-Beziehung manuell prüfen.",
+        "Mehrere unterschiedliche GVBSIDs mit unterschiedlichen "
+        "GVBS-Adressen haben dieselbe EGID als einzigen "
+        "Adresskandidaten. Mischfälle gehören ebenfalls hierher.",
+        "Keine automatische Zuordnung. Beziehung prüfen.",
+    ),
+    (
+        "multiple_egid",
+        "Eine GVBSID besitzt mehrere direkte EGID-Kandidaten "
+        "an ihrer GVBS-Adresse.",
+        "Keine automatische Zuordnung.",
+    ),
+    (
+        "multiple_gvbsid_multiple_egid",
+        "Mehrere GVBSIDs an derselben GVBS-Adresse und "
+        "mehrere EGID-Kandidaten an dieser Adresse.",
+        "Keine automatische Zuordnung.",
     ),
     (
         "review_parcel",
-        "Ein eindeutiger Adresstreffer, aber mehrere "
-        "bestehende EGIDs auf der zugehörigen EGRID.",
-        "Manuell prüfen.",
+        "Historische Kategorie für zusätzliche EGIDs "
+        "auf derselben EGRID.",
+        "Wird aktuell nicht vergeben. Die Fälle werden "
+        "durch super_match oder andere Prüfkategorien erfasst.",
     ),
     (
         "review_missing_egrid",
-        "Ein eindeutiger Adresstreffer, "
-        "aber keine EGRID vorhanden.",
-        "Manuell prüfen.",
+        "Genau ein EGID-Kandidat vorhanden, aber keine "
+        "verwertbare EGRID im GWR hinterlegt.",
+        "Keine automatische Zuordnung. Daten prüfen.",
     ),
     (
         "no_match",
-        "Die bei der GVBS hinterlegte Adresse stimmt "
-        "mit keiner Adresse eines bestehenden GWR-Gebäudes überein.",
+        "Keine passende bestehende EGID an der GVBS-Adresse.",
         "Keine automatische Zuordnung.",
     ),
     (
         "invalid_input",
-        "Mindestens ein erforderliches Eingabefeld fehlt.",
+        "Mindestens ein Pflichtfeld fehlt.",
         "Eingabedaten korrigieren.",
     ),
 ]
+
+AUTO_CATEGORIES = {
+    "perfect_match",
+    "super_match",
+}
 
 
 # ============================================================
 # HILFSFUNKTIONEN
 # ============================================================
 
-def as_text(value):
+def txt(value):
     if value is None:
         return ""
 
@@ -105,79 +131,253 @@ def as_text(value):
     return str(value).strip()
 
 
-def normalize_address(street, number, postal):
-    street = re.sub(
-        r"\s+",
-        " ",
-        as_text(street).casefold().replace("ß", "ss"),
-    ).strip()
+def anzahl_text(anzahl, singular, plural):
+    wort = singular if anzahl == 1 else plural
+    return f"{anzahl} {wort}"
 
-    number = re.sub(
+
+def address(street, number, postal):
+    return (
+        re.sub(
+            r"\s+",
+            " ",
+            txt(street).casefold().replace("ß", "ss"),
+        ).strip(),
+        re.sub(
+            r"\s+",
+            "",
+            txt(number).casefold(),
+        ),
+        txt(postal),
+    )
+
+
+def address_text(key):
+    if not key:
+        return "unbekannte Adresse"
+
+    street, number, postal = key
+
+    return " ".join(
+        part
+        for part in (
+            f"{street} {number}".strip(),
+            postal,
+        )
+        if part
+    )
+
+
+def list_text(values):
+    values = [str(value) for value in values]
+    return ", ".join(values) if values else "keine"
+
+
+def gvbsid_text(gvbsid):
+    return f"{gvbsid[0]}-{gvbsid[1]}"
+
+
+def sorted_egids(values):
+    return sorted(values, key=lambda value: str(value))
+
+
+# ============================================================
+# HAUSNUMMERNZUSÄTZE
+# ============================================================
+
+def is_address_suffix(gvbs_number, gwr_number):
+    """
+    Prüft ausschliesslich von der GVBS-Hausnummer aus,
+    ob die GWR-Hausnummer eine Erweiterung darstellt.
+
+    Beispiele:
+
+    GVBS 30 -> GWR 30.1    Ja
+    GVBS 30 -> GWR 30.2    Ja
+    GVBS 30 -> GWR 30a     Ja
+    GVBS 30 -> GWR 30A     Ja
+
+    GVBS 30 -> GWR 30      Nein
+    GVBS 30 -> GWR 31      Nein
+    GVBS 30 -> GWR 300     Nein
+    GVBS 30 -> GWR 30.    Nein
+    GVBS 30 -> GWR 30/31   Nein
+
+    Der Vergleich ist gerichtet: Die GVBS-Hausnummer
+    muss die Basis der GWR-Hausnummer sein.
+    """
+
+    base = re.sub(
         r"\s+",
         "",
-        as_text(number).casefold(),
+        txt(gvbs_number).casefold(),
     )
 
-    return street, number, as_text(postal)
-
-
-def gvbsid(record):
-    return (
-        as_text(record["Kontrollnummer"]),
-        as_text(record["Gebäude (Nr.)"]),
+    candidate = re.sub(
+        r"\s+",
+        "",
+        txt(gwr_number).casefold(),
     )
 
+    if not base or not candidate:
+        return False
 
-def gvbsid_text(record):
-    kontrollnummer, gebaeudenummer = gvbsid(record)
-    return f"{kontrollnummer}-{gebaeudenummer}"
+    if candidate == base:
+        return False
+
+    if not candidate.startswith(base):
+        return False
+
+    suffix = candidate[len(base):]
+
+    # Nummerierte Zusätze wie 30.1 oder 30.12
+    if re.fullmatch(r"\.\d+", suffix):
+        return True
+
+    # Buchstabenzusätze wie 30a oder 30ab
+    if re.fullmatch(r"[a-z]+", suffix):
+        return True
+
+    return False
 
 
-def format_address(street, number, postal):
-    return (
-        f"{as_text(street)} {as_text(number)}, "
-        f"{as_text(postal)}"
-    ).strip()
-
-
-def format_values(values):
-    return ", ".join(
-        str(value)
-        for value in sorted(values)
-    )
-
-
-def format_gwr_addresses(egid, egid_addresses):
+def find_address_suffix_conflicts(
+    gvbs_address,
+    direct_egid,
+    egid_addresses,
+    egid_grids,
+    grid_egids,
+    gvbs_by_address,
+):
     """
-    Gibt die tatsächlich im GWR gespeicherten Adressen
-    einer EGID als lesbaren Text zurück.
+    Sucht weitere EGIDs mit abgeleiteten Hausnummern.
+
+    Ausgangspunkt:
+        GVBS-Adresse -> direkter EGID-Adresstreffer.
+
+    Anschliessend:
+        Direkte EGID -> EGRID -> weitere EGIDs.
+
+    Eine weitere EGID wird als möglicher Konflikt
+    erfasst, wenn:
+
+    1. Sie auf einer EGRID der direkten EGID liegt.
+    2. Ihre GWR-Adresse dieselbe Strasse und PLZ hat.
+    3. Ihre Hausnummer eine Erweiterung der
+       GVBS-Hausnummer ist.
+    4. Für ihre GWR-Adresse keine eigene GVBSID
+       im eingelesenen Datensatz existiert.
+
+    Rückgabe:
+        Liste von Dictionaries mit:
+            EGID
+            EGRID
+            GWR-Adresse
     """
 
-    addresses = egid_addresses.get(egid, set())
+    if direct_egid is None:
+        return []
 
-    if not addresses:
-        return "Keine vollständige GWR-Adresse vorhanden"
+    gvbs_street, gvbs_number, gvbs_postal = gvbs_address
 
-    return "; ".join(sorted(addresses))
+    conflicts = []
+    seen = set()
+
+    grids = sorted(
+        egid_grids.get(direct_egid, set())
+    )
+
+    for grid in grids:
+        other_egids = sorted_egids(
+            grid_egids.get(grid, set()) - {direct_egid}
+        )
+
+        for other_egid in other_egids:
+            gwr_addresses = sorted(
+                egid_addresses.get(other_egid, set())
+            )
+
+            for gwr_address in gwr_addresses:
+                gwr_street, gwr_number, gwr_postal = gwr_address
+
+                # Gleiche Strasse
+                if gwr_street != gvbs_street:
+                    continue
+
+                # Gleiche PLZ
+                if gwr_postal != gvbs_postal:
+                    continue
+
+                # Gerichteter Hausnummernvergleich
+                if not is_address_suffix(
+                    gvbs_number,
+                    gwr_number,
+                ):
+                    continue
+
+                # Keine eigene GVBSID an dieser Adresse
+                if gvbs_by_address.get(gwr_address):
+                    continue
+
+                identifier = (
+                    other_egid,
+                    grid,
+                    gwr_address,
+                )
+
+                if identifier in seen:
+                    continue
+
+                seen.add(identifier)
+
+                conflicts.append({
+                    "EGID": other_egid,
+                    "EGRID": grid,
+                    "GWR-Adresse": gwr_address,
+                })
+
+    return conflicts
+
+
+def suffix_conflicts_text(conflicts):
+    """
+    Erstellt eine vollständige textliche Dokumentation
+    aller erkannten Hausnummernzusatz-Konflikte.
+    """
+
+    if not conflicts:
+        return ""
+
+    descriptions = []
+
+    for conflict in conflicts:
+        descriptions.append(
+            f"EGID {conflict['EGID']} "
+            f"mit GWR-Adresse "
+            f"{address_text(conflict['GWR-Adresse'])} "
+            f"auf EGRID {conflict['EGRID']}"
+        )
+
+    return "; ".join(descriptions)
 
 
 # ============================================================
 # GWR EINLESEN
 # ============================================================
 
-def read_gwr(path):
-    if not path.is_file():
+def read_gwr(db):
+    if not db.is_file():
         raise FileNotFoundError(
-            f"GWR-Datenbank nicht gefunden: {path}"
+            f"GWR-Datenbank nicht gefunden: {db}"
         )
 
-    connection = sqlite3.connect(
-        path.resolve().as_uri() + "?mode=ro",
+    con = sqlite3.connect(
+        db.resolve().as_uri() + "?mode=ro",
         uri=True,
     )
 
     try:
-        buildings = connection.execute(
+        buildings = con.execute(
             """
             SELECT EGID, EGRID
             FROM building
@@ -186,7 +386,7 @@ def read_gwr(path):
             """
         ).fetchall()
 
-        entrances = connection.execute(
+        entrances = con.execute(
             """
             SELECT
                 e.EGID,
@@ -195,58 +395,40 @@ def read_gwr(path):
                 e.DPLZ4
             FROM entrance e
             JOIN building b
-                ON b.EGID = e.EGID
+                ON e.EGID = b.EGID
             WHERE b.GSTAT = 1004
               AND b.EGID IS NOT NULL
             """
         ).fetchall()
 
     finally:
-        connection.close()
+        con.close()
 
-    # Adresse -> EGIDs
-    address_egids = defaultdict(set)
-
-    # EGID -> normalisierte Adressen
-    egid_address_keys = defaultdict(set)
-
-    # EGID -> tatsächliche GWR-Adressen
+    addr_egids = defaultdict(set)
     egid_addresses = defaultdict(set)
-
-    # EGID -> EGRIDs
     egid_grids = defaultdict(set)
-
-    # EGRID -> EGIDs
     grid_egids = defaultdict(set)
 
-    for egid, egrid in buildings:
-        if as_text(egrid):
-            egrid = as_text(egrid)
+    for egid, grid in buildings:
+        if txt(grid):
+            grid = txt(grid)
 
-            egid_grids[egid].add(egrid)
-            grid_egids[egrid].add(egid)
+            egid_grids[egid].add(grid)
+            grid_egids[grid].add(egid)
 
     for egid, street, number, postal in entrances:
-        key = normalize_address(
+        key = address(
             street,
             number,
             postal,
         )
 
-        if not all(key):
-            continue
-
-        address_egids[key].add(egid)
-        egid_address_keys[egid].add(key)
-
-        # Originale Schreibweise aus dem GWR verwenden.
-        egid_addresses[egid].add(
-            format_address(street, number, postal)
-        )
+        if all(key):
+            addr_egids[key].add(egid)
+            egid_addresses[egid].add(key)
 
     return (
-        address_egids,
-        egid_address_keys,
+        addr_egids,
         egid_addresses,
         egid_grids,
         grid_egids,
@@ -254,41 +436,33 @@ def read_gwr(path):
 
 
 # ============================================================
-# EXCEL EINLESEN
+# GVBS-EXCEL EINLESEN
 # ============================================================
 
 def read_excel(path):
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Excel-Datei nicht gefunden: {path}"
-        )
-
-    workbook = load_workbook(
+    wb = load_workbook(
         path,
         read_only=True,
         data_only=True,
     )
 
     try:
-        rows = workbook.active.iter_rows(
-            values_only=True
-        )
+        rows = wb.active.iter_rows(values_only=True)
+        first = next(rows, None)
 
-        first_row = next(rows, None)
-
-        if first_row is None:
+        if first is None:
             raise ValueError(
-                "Die Excel-Datei ist leer."
+                "Excel-Datei ist leer."
             )
 
         headers = [
-            as_text(value)
-            for value in first_row
+            txt(value)
+            for value in first
         ]
 
         if len(headers) != len(set(headers)):
             raise ValueError(
-                "Doppelte Spaltenüberschriften in Excel."
+                "Doppelte Spaltennamen in der Eingabe."
             )
 
         missing = [
@@ -299,7 +473,7 @@ def read_excel(path):
 
         if missing:
             raise ValueError(
-                f"Fehlende Pflichtspalten: {missing}"
+                f"Fehlende Spalten: {missing}"
             )
 
         records = [
@@ -311,338 +485,368 @@ def read_excel(path):
         return headers, records
 
     finally:
-        workbook.close()
+        wb.close()
 
 
 # ============================================================
-# FLIESSTEXT-ZUSAMMENFASSUNG
+# SUPER-MATCH: INDIVIDUELLE BEGRÜNDUNG
+# ============================================================
+
+def super_match_reasons(
+    egid,
+    egid_addresses,
+    egid_grids,
+    grid_egids,
+):
+    """
+    Ermittelt sämtliche Gründe, weshalb ein eindeutiger
+    EGID-Kandidat kein perfect_match ist.
+    """
+
+    reasons = []
+
+    gwr_addresses = sorted(
+        egid_addresses.get(egid, set())
+    )
+
+    grids = sorted(
+        egid_grids.get(egid, set())
+    )
+
+    # --------------------------------------------------------
+    # GRUND 1: MEHRERE GWR-ADRESSEN
+    # --------------------------------------------------------
+
+    if len(gwr_addresses) > 1:
+        reasons.append(
+            "Die EGID besitzt "
+            f"{anzahl_text(len(gwr_addresses), 'GWR-Adresse', 'GWR-Adressen')}: "
+            f"{list_text(address_text(a) for a in gwr_addresses)}."
+        )
+
+    # --------------------------------------------------------
+    # GRUND 2: MEHRERE EGRIDs
+    # --------------------------------------------------------
+
+    if len(grids) > 1:
+        reasons.append(
+            "Für diese EGID sind "
+            f"{anzahl_text(len(grids), 'EGRID', 'EGRIDs')} "
+            f"hinterlegt: {list_text(grids)}."
+        )
+
+    # --------------------------------------------------------
+    # GRUND 3: WEITERE EGIDs AUF DERSELBEN EGRID
+    # --------------------------------------------------------
+
+    for grid in grids:
+        other_egids = sorted_egids(
+            grid_egids.get(grid, set()) - {egid}
+        )
+
+        if other_egids:
+            reasons.append(
+                f"Auf EGRID {grid} befinden sich zusätzlich "
+                f"{anzahl_text(len(other_egids), 'weitere EGID', 'weitere EGIDs')}: "
+                f"{list_text(other_egids)}."
+            )
+
+            for other_egid in other_egids:
+                other_addresses = sorted(
+                    egid_addresses.get(other_egid, set())
+                )
+
+                reasons.append(
+                    f"Die zusätzliche EGID {other_egid} "
+                    "besitzt folgende GWR-Adressen: "
+                    f"{list_text(address_text(a) for a in other_addresses)}."
+                )
+
+    return reasons
+
+
+# ============================================================
+# AUSFÜHRLICHE MATCHING-ZUSAMMENFASSUNG
 # ============================================================
 
 def create_summary(
-    record,
+    gvbsid,
+    gvbs_address,
     category,
-    address_candidates,
-    egrids,
+    candidates,
+    grids,
     parcel_egids,
-    egid_address_keys,
     egid_addresses,
-    n_gvbs,
-    n_shared,
+    egid_grids,
+    grid_egids,
+    gvbs_by_egid,
+    gvbs_addresses_by_id,
+    suffix_conflicts,
 ):
-    """
-    Erstellt eine verständliche Zusammenfassung.
-
-    Wichtig:
-    - GVBS-Adresse und GWR-Adresse werden getrennt.
-    - GWR-Adressen stammen tatsächlich aus dem GWR.
-    - Direkte Adresstreffer und zusätzliche EGIDs
-      auf derselben EGRID werden unterschieden.
-    """
-
-    identity = gvbsid_text(record)
-
-    gvbs_address = format_address(
-        record["Strasse"],
-        record["Nr."],
-        record["PLZ"],
-    )
-
-    # --------------------------------------------------------
-    # UNVOLLSTÄNDIGE EINGABE
-    # --------------------------------------------------------
+    parts = [
+        f"GVBSID {gvbsid}, "
+        f"GVBS-Adresse {address_text(gvbs_address)}."
+    ]
 
     if category == "invalid_input":
-        return (
-            f"Die GVBSID {identity} konnte nicht mit dem GWR "
-            "abgeglichen werden, weil mindestens eine "
-            "erforderliche Angabe in den GVBS-Daten fehlt. "
-            "Die Eingabedaten müssen zuerst vervollständigt "
-            "werden."
+        parts.append(
+            "Die Eingabedaten sind unvollständig. "
+            "Eine zuverlässige Zuordnung ist nicht möglich."
         )
 
-    # --------------------------------------------------------
-    # KEIN ADRESSTREFFER
-    # --------------------------------------------------------
+        return " ".join(parts)
 
-    if category == "no_match":
-        return (
-            f"Die bei der GVBS für die GVBSID {identity} "
-            f"hinterlegte Adresse {gvbs_address} hat mit "
-            "keiner Adresse eines bestehenden Gebäudes "
-            "im GWR übereingestimmt (GSTAT=1004). "
-            "Deshalb konnte keine EGID zugeordnet werden."
+    if not candidates:
+        parts.append(
+            "Für diese GVBS-Adresse wurde im GWR "
+            "kein passender Adresstreffer eines bestehenden "
+            "Gebäudes (GSTAT 1004) gefunden."
         )
 
-    # --------------------------------------------------------
-    # EINLEITUNG
-    # --------------------------------------------------------
+        parts.append(
+            "Es wird keine EGID zugeordnet."
+        )
 
-    text = (
-        f"Für die GVBSID {identity} ist bei der GVBS "
-        f"die Adresse {gvbs_address} hinterlegt. "
+        return " ".join(parts)
+
+    parts.append(
+        "EGID-Kandidaten aufgrund des direkten "
+        "Adressvergleichs: "
+        f"{list_text(candidates)}."
     )
 
     # --------------------------------------------------------
-    # DIREKTES ADRESSMATCHING
+    # ALLE DIREKTEN EGID-KANDIDATEN DOKUMENTIEREN
     # --------------------------------------------------------
 
-    if len(address_candidates) == 1:
-        egid = address_candidates[0]
-
-        gwr_addresses = format_gwr_addresses(
-            egid,
-            egid_addresses,
+    for egid in candidates:
+        gwr_addresses = sorted(
+            egid_addresses.get(egid, set())
         )
 
-        text += (
-            "Beim Abgleich mit den Adressen bestehender "
-            "Gebäude im GWR wurde genau eine passende "
-            f"EGID gefunden: {egid}. "
-            f"Für diese EGID sind im GWR folgende "
-            f"Adressen hinterlegt: {gwr_addresses}. "
+        egid_grid_values = sorted(
+            egid_grids.get(egid, set())
         )
 
-    else:
-        text += (
-            "Beim Abgleich mit den Adressen bestehender "
-            f"Gebäude im GWR wurden "
-            f"{len(address_candidates)} passende "
-            "EGIDs gefunden. "
+        parts.append(
+            f"EGID {egid} besitzt "
+            f"{anzahl_text(len(gwr_addresses), 'GWR-Adresse', 'GWR-Adressen')}: "
+            f"{list_text(address_text(a) for a in gwr_addresses)}."
         )
 
-        for egid in address_candidates:
-            gwr_addresses = format_gwr_addresses(
-                egid,
-                egid_addresses,
-            )
-
-            text += (
-                f"EGID {egid}: "
-                f"GWR-Adresse(n) {gwr_addresses}. "
-            )
-
-    # --------------------------------------------------------
-    # EGRID-PRÜFUNG
-    # --------------------------------------------------------
-
-    if not egrids:
-        text += (
-            "Für die gefundenen EGIDs ist im verwendeten "
-            "GWR-Datensatz keine EGRID hinterlegt. "
+        parts.append(
+            f"Für EGID {egid} sind "
+            f"{anzahl_text(len(egid_grid_values), 'EGRID', 'EGRIDs')} "
+            f"hinterlegt: {list_text(egid_grid_values)}."
         )
 
-    elif len(egrids) == 1:
-        egrid = next(iter(egrids))
+        # ----------------------------------------------------
+        # ALLE EGIDs AUF DEN EGRIDs DOKUMENTIEREN
+        # ----------------------------------------------------
 
-        text += (
-            f"Die zugehörige EGRID lautet {egrid}. "
-        )
-
-        if len(parcel_egids) == 1:
-            text += (
-                "Auf dieser EGRID ist im verwendeten "
-                "GWR-Datensatz genau eine bestehende "
-                "EGID registriert. "
+        for grid in egid_grid_values:
+            other_egids = sorted_egids(
+                grid_egids.get(grid, set()) - {egid}
             )
 
-        else:
-            text += (
-                f"Auf dieser EGRID sind insgesamt "
-                f"{len(parcel_egids)} bestehende "
-                "EGIDs registriert. "
-            )
-
-            additional_egids = (
-                set(parcel_egids)
-                - set(address_candidates)
-            )
-
-            if additional_egids:
-                text += (
-                    "Zusätzlich zum direkten Adressmatching "
-                    "wurden über die gemeinsame EGRID "
-                    "folgende EGIDs gefunden: "
+            if other_egids:
+                parts.append(
+                    f"Auf EGRID {grid} befinden sich zusätzlich "
+                    f"{anzahl_text(len(other_egids), 'weitere EGID', 'weitere EGIDs')}: "
+                    f"{list_text(other_egids)}."
                 )
 
-                for egid in sorted(additional_egids):
-                    gwr_addresses = format_gwr_addresses(
-                        egid,
-                        egid_addresses,
+                for other_egid in other_egids:
+                    other_addresses = sorted(
+                        egid_addresses.get(other_egid, set())
                     )
 
-                    text += (
-                        f"EGID {egid} mit der GWR-Adresse "
-                        f"bzw. den GWR-Adressen "
-                        f"{gwr_addresses}. "
+                    parts.append(
+                        f"Zusätzliche EGID {other_egid}: "
+                        "GWR-Adressen "
+                        f"{list_text(address_text(a) for a in other_addresses)}."
                     )
 
-    else:
-        text += (
-            "Die gefundenen EGIDs sind mit "
-            f"{len(egrids)} EGRIDs verknüpft: "
-            f"{format_values(egrids)}. "
-        )
-
-        text += (
-            f"Auf diesen EGRIDs sind insgesamt "
-            f"{len(parcel_egids)} bestehende "
-            "EGIDs registriert. "
-        )
-
-        additional_egids = (
-            set(parcel_egids)
-            - set(address_candidates)
-        )
-
-        if additional_egids:
-            text += (
-                "Folgende zusätzliche EGIDs wurden "
-                "erst über die EGRIDs gefunden: "
-            )
-
-            for egid in sorted(additional_egids):
-                gwr_addresses = format_gwr_addresses(
-                    egid,
-                    egid_addresses,
+            else:
+                parts.append(
+                    f"Auf EGRID {grid} ist EGID {egid} "
+                    "die einzige bestehende EGID "
+                    "im verwendeten GWR-Datensatz."
                 )
 
-                text += (
-                    f"EGID {egid} "
-                    f"({gwr_addresses}). "
+        # ----------------------------------------------------
+        # KONKURRIERENDE GVBSIDs DOKUMENTIEREN
+        # ----------------------------------------------------
+
+        related_gvbsids = sorted(
+            gvbs_by_egid.get(egid, set()),
+            key=gvbsid_text,
+        )
+
+        if related_gvbsids:
+            descriptions = []
+
+            for other_gvbsid in related_gvbsids:
+                addresses = sorted(
+                    gvbs_addresses_by_id.get(
+                        other_gvbsid,
+                        set(),
+                    )
                 )
 
-    # --------------------------------------------------------
-    # MEHRERE GWR-ADRESSEN
-    # --------------------------------------------------------
+                descriptions.append(
+                    f"{gvbsid_text(other_gvbsid)} "
+                    f"({list_text(address_text(a) for a in addresses)})"
+                )
 
-    if len(address_candidates) == 1:
-        egid = address_candidates[0]
-
-        n_addresses = len(
-            egid_address_keys.get(egid, set())
-        )
-
-        if n_addresses == 1:
-            text += (
-                f"Die EGID {egid} besitzt im GWR "
-                "genau eine unterschiedliche Adresse. "
-            )
-
-        elif n_addresses > 1:
-            text += (
-                f"Die EGID {egid} besitzt im GWR "
-                f"insgesamt {n_addresses} unterschiedliche "
-                "Adressen. "
+            parts.append(
+                "Folgende GVBSIDs besitzen diese EGID "
+                "als einzigen direkten Adresskandidaten: "
+                + "; ".join(descriptions)
+                + "."
             )
 
     # --------------------------------------------------------
-    # MEHRERE GVBSIDs
+    # KATEGORIENSPEZIFISCHE BEWERTUNG
     # --------------------------------------------------------
 
-    if n_shared > 1:
-        text += (
-            f"Die EGID ist ausserdem für insgesamt "
-            f"{n_shared} unterschiedliche GVBSIDs "
-            "ein eindeutiger Adresstreffer. "
-        )
-
-    elif n_gvbs > 1:
-        text += (
-            f"Bei der GVBS sind unter derselben "
-            f"Adresse {n_gvbs} unterschiedliche "
-            "GVBSIDs erfasst. "
-        )
-
-    # --------------------------------------------------------
-    # FACHLICHE BEURTEILUNG
-    # --------------------------------------------------------
-
-    explanations = {
-        "perfect_match": (
-            "Die Zuordnung erfüllt sämtliche definierten "
-            "Kriterien für ein Perfect Match: "
-            "ein eindeutiger Adresstreffer, nur eine "
-            "GWR-Adresse für diese EGID, genau eine "
-            "EGRID mit nur einer bestehenden EGID "
-            "und keine weitere GVBSID mit derselben "
-            "EGID als eindeutigen Adresstreffer. "
+    if category == "perfect_match":
+        parts.append(
+            "Bewertung: perfect_match. "
+            "Es besteht genau ein EGID-Kandidat. "
+            "Keine andere GVBSID beansprucht diese EGID. "
+            "Die EGID besitzt genau eine GWR-Adresse "
+            "und ist die einzige bestehende EGID "
+            "auf ihrer EGRID. "
             "Die EGID wird automatisch zugeordnet."
-        ),
+        )
 
-        "good_match": (
-            "Die Zuordnung muss hinsichtlich der "
-            "Grundstücksbeziehungen zusätzlich geprüft "
-            "werden. Eine automatische Zuordnung "
-            "erfolgt nicht."
-        ),
+    elif category == "super_match":
+        egid = candidates[0]
 
-        "multiple_addresses_one_egid": (
-            "Obwohl die bei der GVBS hinterlegte "
-            "Adresse mit einer GWR-Adresse "
-            "übereinstimmt, besitzt die gefundene "
-            "EGID weitere GWR-Adressen. "
-            "Nach den festgelegten Kriterien ist "
-            "die Zuordnung deshalb nicht ausreichend "
-            "eindeutig und muss überprüft werden."
-        ),
+        reasons = super_match_reasons(
+            egid=egid,
+            egid_addresses=egid_addresses,
+            egid_grids=egid_grids,
+            grid_egids=grid_egids,
+        )
 
-        "multiple_egid": (
-            "Die bei der GVBS hinterlegte Adresse "
-            "stimmt mit den GWR-Adressen mehrerer "
-            "EGIDs überein. Es kann deshalb nicht "
-            "automatisch entschieden werden, "
-            "welche EGID zur GVBSID gehört. "
-            "Eine manuelle Prüfung ist erforderlich."
-        ),
+        parts.append(
+            "Bewertung: super_match. "
+            f"Die GVBSID {gvbsid} kann anhand "
+            f"des Adressvergleichs eindeutig "
+            f"der EGID {egid} zugeordnet werden. "
+            "Es besteht genau ein direkter EGID-Kandidat, "
+            "und keine andere GVBSID beansprucht diese EGID."
+        )
 
-        "multiple_gvbsid_multiple_egid": (
-            "An der bei der GVBS hinterlegten Adresse "
-            "existieren mehrere GVBSIDs. Gleichzeitig "
-            "wurden im GWR mehrere passende EGIDs "
-            "gefunden. Die Beziehungen zwischen "
-            "GVBSIDs und EGIDs müssen manuell "
-            "geprüft werden."
-        ),
+        parts.append(
+            "Kein perfect_match aus folgenden Gründen:"
+        )
 
-        "multiple_gvbsid_one_egid": (
-            "Mehrere GVBSIDs haben dieselbe EGID "
-            "als eindeutigen Adresstreffer. "
-            "Dies kann eine zulässige n:1-Beziehung "
-            "darstellen, beispielsweise wenn mehrere "
-            "GVBS-Versicherungsobjekte einem einzigen "
-            "GWR-Gebäude entsprechen. "
-            "Die Zuordnung muss überprüft werden."
-        ),
+        for index, reason in enumerate(reasons, start=1):
+            parts.append(
+                f"Grund {index}: {reason}"
+            )
 
-        "review_parcel": (
-            "Die bei der GVBS hinterlegte Adresse "
-            "hat genau eine EGID im GWR getroffen. "
-            "Auf der zugehörigen EGRID befindet sich "
-            "jedoch mindestens eine weitere EGID, "
-            "die nicht zwingend dieselbe Adresse "
-            "besitzt. Der direkte Adresstreffer ist "
-            "damit eindeutig, die gesamte "
-            "Grundstückssituation jedoch nicht. "
-            "Eine manuelle Prüfung ist erforderlich."
-        ),
+        parts.append(
+            "Diese Besonderheiten verhindern die "
+            "automatische Zuordnung nach der "
+            "festgelegten Matchinglogik nicht. "
+            "Die EGID wird automatisch zugeordnet."
+        )
 
-        "review_missing_egrid": (
-            "Die bei der GVBS hinterlegte Adresse "
-            "hat genau eine EGID im GWR getroffen. "
-            "Da für diese EGID keine EGRID vorhanden "
-            "ist, kann nicht überprüft werden, "
-            "ob auf derselben Parzelle weitere "
-            "EGIDs existieren. "
-            "Eine manuelle Prüfung ist erforderlich."
-        ),
-    }
+    elif category == "review_address_suffix":
+        direct_egid = candidates[0]
 
-    text += explanations.get(
-        category,
-        "Die Zuordnung muss überprüft werden.",
-    )
+        parts.append(
+            "Bewertung: review_address_suffix."
+        )
 
-    return text.strip()
+        parts.append(
+            f"Für die GVBSID {gvbsid} mit der Adresse "
+            f"{address_text(gvbs_address)} "
+            f"wurde die EGID {direct_egid} "
+            "als eindeutiger direkter Adresstreffer gefunden."
+        )
+
+        parts.append(
+            "Auf mindestens einer EGRID dieser EGID "
+            "befinden sich jedoch weitere EGIDs mit "
+            "abgeleiteten Hausnummern."
+        )
+
+        parts.append(
+            "Folgende zusätzlichen EGIDs wurden erkannt: "
+            + suffix_conflicts_text(suffix_conflicts)
+            + "."
+        )
+
+        parts.append(
+            "Für die genannten zusätzlichen GWR-Adressen "
+            "ist im eingelesenen GVBS-Datensatz keine "
+            "eigene GVBSID vorhanden."
+        )
+
+        parts.append(
+            "Es muss geprüft werden, ob die GVBSID "
+            "ausschliesslich dem direkt gefundenen Gebäude "
+            "entspricht oder mehrere EGIDs umfasst. "
+            "Es erfolgt keine automatische EGID-Zuordnung."
+        )
+
+    elif category == "multiple_gvbsid_same_address_one_egid":
+        parts.append(
+            "Bewertung: multiple_gvbsid_same_address_one_egid. "
+            "Mehrere unterschiedliche GVBSIDs besitzen "
+            "dieselbe GVBS-Adresse und führen zur "
+            "gleichen EGID. "
+            "Die Beziehung muss geprüft werden. "
+            "Die EGID bleibt leer."
+        )
+
+    elif category == "multiple_gvbsid_one_egid":
+        parts.append(
+            "Bewertung: multiple_gvbsid_one_egid. "
+            "Mehrere unterschiedliche GVBSIDs mit "
+            "unterschiedlichen GVBS-Adressen führen "
+            "zur gleichen EGID. "
+            "Diese Beziehung muss manuell geprüft werden. "
+            "Die EGID bleibt leer."
+        )
+
+    elif category == "multiple_egid":
+        parts.append(
+            "Bewertung: multiple_egid. "
+            "Die GVBS-Adresse liefert mehrere "
+            "EGID-Kandidaten. "
+            "Eine eindeutige Zuordnung ist nicht möglich."
+        )
+
+    elif category == "multiple_gvbsid_multiple_egid":
+        parts.append(
+            "Bewertung: multiple_gvbsid_multiple_egid. "
+            "Mehrere GVBSIDs besitzen dieselbe GVBS-Adresse, "
+            "und der GWR-Adressvergleich liefert "
+            "mehrere EGIDs. "
+            "Eine automatische Zuordnung ist nicht möglich."
+        )
+
+    elif category == "review_missing_egrid":
+        parts.append(
+            "Bewertung: review_missing_egrid. "
+            "Es wurde genau ein EGID-Kandidat gefunden, "
+            "aber keine EGRID ist hinterlegt. "
+            "Die Zuordnung wird zur Prüfung zurückgestellt."
+        )
+
+    else:
+        parts.append(
+            f"Bewertung: {category}. "
+            "Die Zuordnung wird zur Prüfung zurückgestellt."
+        )
+
+    return " ".join(parts)
 
 
 # ============================================================
@@ -651,239 +855,388 @@ def create_summary(
 
 def match(
     records,
-    address_egids,
-    egid_address_keys,
+    addr_egids,
     egid_addresses,
     egid_grids,
     grid_egids,
 ):
-    address_gvbsids = defaultdict(set)
-    egid_gvbsids = defaultdict(set)
-
     # --------------------------------------------------------
-    # GVBSIDs PRO ADRESSE UND EGID ERMITTELN
+    # GVBS-ADRESSEN UND GVBSIDs AUFBEREITEN
     # --------------------------------------------------------
 
-    for record in records:
-        key = normalize_address(
+    keys = [
+        address(
             record["Strasse"],
             record["Nr."],
             record["PLZ"],
         )
+        for record in records
+    ]
 
-        identity = gvbsid(record)
+    gvbs_keys = [
+        (
+            txt(record["Kontrollnummer"]),
+            txt(record["Gebäude (Nr.)"]),
+        )
+        for record in records
+    ]
 
-        if not (all(key) and all(identity)):
+    valid = [
+        all(key) and all(gvbs_key)
+        for key, gvbs_key in zip(
+            keys,
+            gvbs_keys,
+        )
+    ]
+
+    # --------------------------------------------------------
+    # GESAMTEN GVBS-DATENSATZ ANALYSIEREN
+    # --------------------------------------------------------
+
+    gvbs_by_address = defaultdict(set)
+    gvbs_by_egid = defaultdict(set)
+    gvbs_addresses_by_id = defaultdict(set)
+
+    for key, gvbs_key, ok in zip(
+        keys,
+        gvbs_keys,
+        valid,
+    ):
+        if not ok:
             continue
 
-        address_gvbsids[key].add(identity)
+        gvbs_by_address[key].add(gvbs_key)
+        gvbs_addresses_by_id[gvbs_key].add(key)
 
-        candidates = address_egids.get(
+        candidates = addr_egids.get(
             key,
             set(),
         )
 
         if len(candidates) == 1:
             egid = next(iter(candidates))
+            gvbs_by_egid[egid].add(gvbs_key)
 
-            egid_gvbsids[egid].add(identity)
+    # --------------------------------------------------------
+    # EINZELNE DATENSÄTZE BEWERTEN
+    # --------------------------------------------------------
 
     results = []
 
-    # --------------------------------------------------------
-    # EINZELNE GVBS-DATENSÄTZE PRÜFEN
-    # --------------------------------------------------------
-
-    for record in records:
-        key = normalize_address(
-            record["Strasse"],
-            record["Nr."],
-            record["PLZ"],
-        )
-
-        identity = gvbsid(record)
-
-        valid = all(key) and all(identity)
-
-        address_candidates = (
-            sorted(address_egids.get(key, set()))
-            if valid
+    for record, key, gvbs_key, ok in zip(
+        records,
+        keys,
+        gvbs_keys,
+        valid,
+    ):
+        candidates = (
+            sorted_egids(
+                addr_egids.get(key, set())
+            )
+            if ok
             else []
         )
 
-        # EGRIDs der Adresstreffer
-        egrids = (
-            set().union(
-                *(
-                    egid_grids.get(egid, set())
-                    for egid in address_candidates
-                )
-            )
-            if address_candidates
-            else set()
-        )
+        grids = set()
 
-        # Alle EGIDs auf diesen EGRIDs
-        parcel_egids = (
-            set().union(
-                *(
-                    grid_egids.get(egrid, set())
-                    for egrid in egrids
-                )
+        for egid in candidates:
+            grids.update(
+                egid_grids.get(egid, set())
             )
-            if egrids
-            else set()
-        )
 
-        n_gvbs = (
-            len(address_gvbsids[key])
-            if valid
+        parcel_egids = set()
+
+        for grid in grids:
+            parcel_egids.update(
+                grid_egids.get(grid, set())
+            )
+
+        n_gvbs_at_address = (
+            len(gvbs_by_address[key])
+            if ok
             else 0
         )
 
-        n_addresses = (
-            len(
-                egid_address_keys.get(
-                    address_candidates[0],
-                    set(),
-                )
-            )
-            if len(address_candidates) == 1
+        direct_egid = (
+            candidates[0]
+            if len(candidates) == 1
             else None
         )
 
-        n_shared = (
+        n_gwr_addresses = (
             len(
-                egid_gvbsids[
-                    address_candidates[0]
-                ]
+                egid_addresses.get(
+                    direct_egid,
+                    set(),
+                )
             )
-            if len(address_candidates) == 1
-            else 0
+            if direct_egid is not None
+            else None
+        )
+
+        gvbsids_for_egid = (
+            gvbs_by_egid.get(
+                direct_egid,
+                set(),
+            )
+            if direct_egid is not None
+            else set()
+        )
+
+        n_gvbs_for_egid = (
+            len(gvbsids_for_egid)
+            if direct_egid is not None
+            else None
+        )
+
+        gvbs_addresses_for_egid = set()
+
+        for other_gvbsid in gvbsids_for_egid:
+            gvbs_addresses_for_egid.update(
+                gvbs_addresses_by_id.get(
+                    other_gvbsid,
+                    set(),
+                )
+            )
+
+        n_gvbs_addresses_for_egid = (
+            len(gvbs_addresses_for_egid)
+            if direct_egid is not None
+            else None
         )
 
         # ----------------------------------------------------
-        # KATEGORIE
+        # NEU: HAUSNUMMERNZUSÄTZE PRÜFEN
         # ----------------------------------------------------
 
-        if not valid:
-            category = "invalid_input"
+        suffix_conflicts = []
 
-        elif not address_candidates:
-            category = "no_match"
-
-        elif len(address_candidates) > 1:
-            category = (
-                "multiple_gvbsid_multiple_egid"
-                if n_gvbs > 1
-                else "multiple_egid"
+        if (
+            ok
+            and direct_egid is not None
+            and grids
+        ):
+            suffix_conflicts = find_address_suffix_conflicts(
+                gvbs_address=key,
+                direct_egid=direct_egid,
+                egid_addresses=egid_addresses,
+                egid_grids=egid_grids,
+                grid_egids=grid_egids,
+                gvbs_by_address=gvbs_by_address,
             )
 
-        elif n_gvbs > 1 or n_shared > 1:
-            category = "multiple_gvbsid_one_egid"
+        # ----------------------------------------------------
+        # KATEGORIE BESTIMMEN
+        # ----------------------------------------------------
 
-        elif len(parcel_egids) > 1:
-            category = "review_parcel"
+        if not ok:
+            category = "invalid_input"
 
-        elif not egrids:
-            category = "review_missing_egrid"
+        elif not candidates:
+            category = "no_match"
 
-        elif n_addresses > 1:
-            category = "multiple_addresses_one_egid"
+        elif len(candidates) > 1:
+            if n_gvbs_at_address > 1:
+                category = "multiple_gvbsid_multiple_egid"
+            else:
+                category = "multiple_egid"
 
         elif (
-            len(egrids) == 1
+            n_gvbs_for_egid > 1
+            and n_gvbs_addresses_for_egid > 1
+        ):
+            category = "multiple_gvbsid_one_egid"
+
+        elif n_gvbs_for_egid > 1:
+            category = (
+                "multiple_gvbsid_same_address_one_egid"
+            )
+
+        elif not grids:
+            category = "review_missing_egrid"
+
+        # ----------------------------------------------------
+        # NEUE KATEGORIE VOR PERFECT UND SUPER MATCH
+        # ----------------------------------------------------
+
+        elif suffix_conflicts:
+            category = "review_address_suffix"
+
+        elif (
+            n_gwr_addresses == 1
+            and len(grids) == 1
             and len(parcel_egids) == 1
         ):
             category = "perfect_match"
 
         else:
-            category = "good_match"
+            category = "super_match"
 
-        # Nur Perfect Matches automatisch zuordnen
+        # ----------------------------------------------------
+        # AUTOMATISCHE EGID-ZUORDNUNG
+        # ----------------------------------------------------
+
         assigned_egid = (
-            address_candidates[0]
-            if category == "perfect_match"
+            direct_egid
+            if category in AUTO_CATEGORIES
             else None
         )
 
         # ----------------------------------------------------
-        # TECHNISCHER KOMMENTAR
+        # KOMPAKTER KOMMENTAR
         # ----------------------------------------------------
 
-        comment = (
-            f"{n_gvbs} GVBSID(s) an GVBS-Adresse; "
-            f"{len(address_candidates)} bestehende "
-            "EGID(s) an GWR-Adresse; "
-            f"{len(egrids)} EGRID(s) der Adresskandidaten; "
-            f"{len(parcel_egids)} bestehende "
-            "EGID(s) auf diesen EGRID(s)."
-        )
-
-        if len(address_candidates) == 1:
-            comment += (
-                f" EGID {address_candidates[0]} besitzt "
-                f"{n_addresses} unterschiedliche "
-                "GWR-Adresse(n) und ist Adresskandidat "
-                f"für {n_shared} unterschiedliche GVBSID(s)."
+        comment_parts = [
+            anzahl_text(
+                n_gvbs_at_address,
+                "GVBSID",
+                "GVBSIDs",
             )
+            + " an GVBS-Adresse",
+
+            anzahl_text(
+                len(candidates),
+                "EGID-Kandidat",
+                "EGID-Kandidaten",
+            ),
+
+            anzahl_text(
+                len(grids),
+                "EGRID",
+                "EGRIDs",
+            )
+            + " der Adresskandidaten",
+
+            anzahl_text(
+                len(parcel_egids),
+                "bestehende EGID",
+                "bestehende EGIDs",
+            )
+            + " auf diesen EGRIDs",
+        ]
+
+        if direct_egid is not None:
+            comment_parts.append(
+                anzahl_text(
+                    n_gwr_addresses,
+                    "GWR-Adresse",
+                    "GWR-Adressen",
+                )
+                + f" für EGID {direct_egid}"
+            )
+
+            comment_parts.append(
+                anzahl_text(
+                    n_gvbs_for_egid,
+                    "GVBSID",
+                    "GVBSIDs",
+                )
+                + " mit dieser EGID als eindeutigem "
+                  "Adresskandidaten"
+            )
+
+            comment_parts.append(
+                anzahl_text(
+                    n_gvbs_addresses_for_egid,
+                    "unterschiedliche GVBS-Adresse",
+                    "unterschiedliche GVBS-Adressen",
+                )
+                + " für diese EGID"
+            )
+
+        comment = "; ".join(comment_parts) + "."
 
         if category == "no_match":
             comment += (
-                " Kein passender GWR-Adressdatensatz "
-                "mit GSTAT=1004."
+                " Kein passender GWR-Adresstreffer."
             )
 
-        if category == "invalid_input":
+        elif category == "invalid_input":
             comment += (
                 " Mindestens ein Pflichtfeld fehlt."
             )
 
-        # ----------------------------------------------------
-        # GWR-ADRESSEN DER DIREKTEN EGID-KANDIDATEN
-        # ----------------------------------------------------
+        elif category == "perfect_match":
+            comment += (
+                " Eindeutige Zuordnung ohne Besonderheiten."
+            )
 
-        direct_gwr_addresses = []
+        elif category == "super_match":
+            reasons = super_match_reasons(
+                egid=direct_egid,
+                egid_addresses=egid_addresses,
+                egid_grids=egid_grids,
+                grid_egids=grid_egids,
+            )
 
-        for egid in address_candidates:
-            direct_gwr_addresses.append(
-                f"EGID {egid}: "
-                f"{format_gwr_addresses(egid, egid_addresses)}"
+            comment += (
+                " Eindeutige Zuordnung als super_match. "
+                "Kein perfect_match, weil: "
+                + " ".join(reasons)
+            )
+
+        elif category == "review_address_suffix":
+            comment += (
+                " Mögliche zusätzliche EGIDs mit "
+                "Hausnummernzusätzen erkannt. "
+                "Direkter EGID-Kandidat: "
+                f"{direct_egid}. "
+                "Weitere mögliche EGIDs: "
+                + suffix_conflicts_text(suffix_conflicts)
+                + ". Keine automatische Zuordnung."
+            )
+
+        elif category == (
+            "multiple_gvbsid_same_address_one_egid"
+        ):
+            comment += (
+                " Mehrere GVBSIDs mit identischer "
+                "GVBS-Adresse beanspruchen dieselbe EGID."
+            )
+
+        elif category == "multiple_gvbsid_one_egid":
+            comment += (
+                " Mehrere GVBSIDs mit unterschiedlichen "
+                "GVBS-Adressen beanspruchen dieselbe EGID."
             )
 
         # ----------------------------------------------------
-        # GWR-ADRESSEN ALLER EGIDs AUF DER EGRID
-        # ----------------------------------------------------
-
-        parcel_gwr_addresses = []
-
-        for egid in sorted(parcel_egids):
-            source = (
-                "Adresstreffer"
-                if egid in address_candidates
-                else "zusätzlich über EGRID"
-            )
-
-            parcel_gwr_addresses.append(
-                f"EGID {egid} ({source}): "
-                f"{format_gwr_addresses(egid, egid_addresses)}"
-            )
-
-        # ----------------------------------------------------
-        # FLIESSTEXT
+        # AUSFÜHRLICHE ZUSAMMENFASSUNG
         # ----------------------------------------------------
 
         summary = create_summary(
-            record=record,
+            gvbsid=gvbsid_text(gvbs_key),
+            gvbs_address=key,
             category=category,
-            address_candidates=address_candidates,
-            egrids=egrids,
+            candidates=candidates,
+            grids=grids,
             parcel_egids=parcel_egids,
-            egid_address_keys=egid_address_keys,
             egid_addresses=egid_addresses,
-            n_gvbs=n_gvbs,
-            n_shared=n_shared,
+            egid_grids=egid_grids,
+            grid_egids=grid_egids,
+            gvbs_by_egid=gvbs_by_egid,
+            gvbs_addresses_by_id=gvbs_addresses_by_id,
+            suffix_conflicts=suffix_conflicts,
         )
+
+        # ----------------------------------------------------
+        # ZUSÄTZLICHE EGIDs AUS HAUSNUMMERNZUSÄTZEN
+        # ----------------------------------------------------
+
+        suffix_egids = sorted_egids({
+            conflict["EGID"]
+            for conflict in suffix_conflicts
+        })
+
+        suffix_addresses = sorted({
+            conflict["GWR-Adresse"]
+            for conflict in suffix_conflicts
+        })
+
+        suffix_grids = sorted({
+            conflict["EGRID"]
+            for conflict in suffix_conflicts
+        })
 
         # ----------------------------------------------------
         # ERGEBNIS
@@ -892,147 +1245,154 @@ def match(
         results.append({
             **record,
 
-            "GVBSID": gvbsid_text(record),
+            "GVBSID":
+                gvbsid_text(gvbs_key),
 
-            "EGID": assigned_egid,
+            "EGID":
+                assigned_egid,
 
-            "Matching-Kategorie": category,
+            "Matching-Kategorie":
+                category,
 
-            "Match-Kommentar": comment,
+            "Match-Kommentar":
+                comment,
 
-            "GVBSIDs an GVBS-Adresse": n_gvbs,
+            "Anzahl GVBSID an Adresse":
+                n_gvbs_at_address,
 
-            "EGIDs mit passender GWR-Adresse": (
-                len(address_candidates)
-            ),
+            "Anzahl EGID an Adresse":
+                len(candidates),
 
-            "EGRIDs der gefundenen EGIDs": (
-                len(egrids)
-            ),
+            "Anzahl GWR-Adressen pro EGID":
+                n_gwr_addresses,
 
-            "EGIDs auf zugehöriger EGRID": (
-                len(parcel_egids)
-            ),
+            "Anzahl EGRID":
+                len(grids),
 
-            "GWR-Adressen der gefundenen EGID": (
-                n_addresses
-            ),
+            "Anzahl EGID auf EGRID":
+                len(parcel_egids),
 
-            "GVBSIDs mit derselben EGID als Adresstreffer": (
-                n_shared
-                if len(address_candidates) == 1
-                else None
-            ),
+            "Anzahl GVBSID pro EGID":
+                n_gvbs_for_egid,
 
-            "EGIDs aus Adressmatching": (
-                format_values(address_candidates)
-            ),
+            "Anzahl GVBS-Adressen pro EGID":
+                n_gvbs_addresses_for_egid,
 
-            "GWR-Adressen der EGID-Kandidaten": (
-                " | ".join(direct_gwr_addresses)
-            ),
+            "EGID-Kandidaten":
+                list_text(candidates)
+                if candidates
+                else "",
 
-            "EGIDs auf zugehöriger EGRID (Liste)": (
-                format_values(parcel_egids)
-            ),
+            "EGRID-Kandidaten":
+                list_text(sorted(grids))
+                if grids
+                else "",
 
-            "GWR-Adressen der EGIDs auf EGRID": (
-                " | ".join(parcel_gwr_addresses)
-            ),
+            "Automatische Zuordnung":
+                "Ja"
+                if assigned_egid is not None
+                else "Nein",
 
-            "EGRIDs aus Adressmatching": (
-                format_values(egrids)
-            ),
+            # -----------------------------------------------
+            # NEUE SPALTEN FÜR HAUSNUMMERNZUSÄTZE
+            # -----------------------------------------------
 
-            "Matching-Zusammenfassung": summary,
+            "Anzahl EGID mit Hausnummernzusatz":
+                len(suffix_egids),
+
+            "EGID mit Hausnummernzusatz":
+                list_text(suffix_egids)
+                if suffix_egids
+                else "",
+
+            "GWR-Adressen mit Hausnummernzusatz":
+                list_text(
+                    address_text(a)
+                    for a in suffix_addresses
+                )
+                if suffix_addresses
+                else "",
+
+            "EGRID der Hausnummernzusätze":
+                list_text(suffix_grids)
+                if suffix_grids
+                else "",
+
+            "Matching-Zusammenfassung":
+                summary,
         })
 
     return results
 
 
 # ============================================================
-# EXCEL EXPORT
+# EXCEL-AUSGABE
 # ============================================================
 
 def save_excel(path, headers, results):
-    workbook = Workbook()
+    wb = Workbook()
 
-    # --------------------------------------------------------
-    # BLATT 1: MATCHING
-    # --------------------------------------------------------
+    ws = wb.active
+    ws.title = "Matching"
 
-    sheet = workbook.active
-    sheet.title = "Matching"
-
-    extra_columns = [
+    extras = [
         "GVBSID",
         "EGID",
         "Matching-Kategorie",
         "Match-Kommentar",
-
-        "GVBSIDs an GVBS-Adresse",
-        "EGIDs mit passender GWR-Adresse",
-        "EGRIDs der gefundenen EGIDs",
-        "EGIDs auf zugehöriger EGRID",
-
-        "GWR-Adressen der gefundenen EGID",
-        "GVBSIDs mit derselben EGID als Adresstreffer",
-
-        "EGIDs aus Adressmatching",
-        "GWR-Adressen der EGID-Kandidaten",
-
-        "EGIDs auf zugehöriger EGRID (Liste)",
-        "GWR-Adressen der EGIDs auf EGRID",
-
-        "EGRIDs aus Adressmatching",
-
+        "Anzahl GVBSID an Adresse",
+        "Anzahl EGID an Adresse",
+        "Anzahl GWR-Adressen pro EGID",
+        "Anzahl EGRID",
+        "Anzahl EGID auf EGRID",
+        "Anzahl GVBSID pro EGID",
+        "Anzahl GVBS-Adressen pro EGID",
+        "EGID-Kandidaten",
+        "EGRID-Kandidaten",
+        "Automatische Zuordnung",
+        "Anzahl EGID mit Hausnummernzusatz",
+        "EGID mit Hausnummernzusatz",
+        "GWR-Adressen mit Hausnummernzusatz",
+        "EGRID der Hausnummernzusätze",
         "Matching-Zusammenfassung",
     ]
 
-    # Originalspalten behalten.
-    # Matching-Zusammenfassung immer ganz rechts.
-    columns = [
+    columns = headers + [
         column
-        for column in headers
-        if column != "Matching-Zusammenfassung"
+        for column in extras
+        if column not in headers
     ]
 
-    columns += [
-        column
-        for column in extra_columns
-        if column not in columns
-    ]
+    ws.append(columns)
 
-    sheet.append(columns)
-
-    for record in results:
-        sheet.append([
-            record.get(column)
+    for result in results:
+        ws.append([
+            result.get(column)
             for column in columns
         ])
 
     # --------------------------------------------------------
-    # BLATT 2: ZUSAMMENFASSUNG
+    # ZUSAMMENFASSUNG
     # --------------------------------------------------------
 
-    summary = workbook.create_sheet(
+    summary = wb.create_sheet(
         "Zusammenfassung"
     )
 
     summary.append([
-        "Matching-Kategorie",
+        "Kategorie",
         "Anzahl",
     ])
 
     counts = Counter(
-        record["Matching-Kategorie"]
-        for record in results
+        result["Matching-Kategorie"]
+        for result in results
     )
 
-    for category, _, _ in CATEGORIES:
+    for name, _, _ in CATEGORIES:
         summary.append([
-            category,
-            counts[category],
+            name,
+            counts[name],
         ])
 
     summary.append([
@@ -1040,11 +1400,27 @@ def save_excel(path, headers, results):
         len(results),
     ])
 
+    summary.append([
+        "Automatisch zugeordnet",
+        sum(
+            result["Automatische Zuordnung"] == "Ja"
+            for result in results
+        ),
+    ])
+
+    summary.append([
+        "Nicht automatisch zugeordnet",
+        sum(
+            result["Automatische Zuordnung"] == "Nein"
+            for result in results
+        ),
+    ])
+
     # --------------------------------------------------------
-    # BLATT 3: KATEGORIEN-HINWEISE
+    # KATEGORIEN-HINWEISE
     # --------------------------------------------------------
 
-    notes = workbook.create_sheet(
+    notes = wb.create_sheet(
         "Kategorien-Hinweise"
     )
 
@@ -1054,83 +1430,112 @@ def save_excel(path, headers, results):
         "Vorgehen",
     ])
 
-    for category in CATEGORIES:
-        notes.append(category)
+    for row in CATEGORIES:
+        notes.append(row)
 
     notes.append([
-        "Hinweis",
-        "Es werden ausschliesslich bestehende "
-        "GWR-Gebäude mit GSTAT=1004 berücksichtigt.",
+        "Grundregel",
+        "Die automatische Zuordnung erfolgt ausschliesslich "
+        "für perfect_match und super_match.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Die GVBS-Adresse stammt aus der "
-        "eingelesenen GVBS-Excel-Datei.",
+        "GVBSID",
+        "Eine GVBSID besteht aus Kontrollnummer "
+        "und Gebäude (Nr.).",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Die GWR-Adressen stammen aus der "
-        "Tabelle entrance der GWR-Datenbank.",
+        "GWR-Adressen",
+        "Eine EGID kann mehrere GWR-Adressen besitzen. "
+        "Dies ist allein kein Ausschlussgrund.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "EGIDs aus Adressmatching enthält nur "
-        "EGIDs, deren GWR-Adresse mit der "
-        "GVBS-Adresse übereinstimmt.",
+        "GVBS-Adressen",
+        "Mehrere unterschiedliche GVBSIDs, die dieselbe "
+        "EGID als einzigen Adresskandidaten haben, "
+        "verhindern die automatische Zuordnung.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "EGIDs auf zugehöriger EGRID enthält "
-        "auch EGIDs, die nicht über die "
-        "GVBS-Adresse gefunden wurden.",
+        "EGRID",
+        "Weitere EGIDs auf derselben EGRID oder mehrere "
+        "EGRIDs für dieselbe EGID sind allein "
+        "kein Ausschlussgrund für super_match.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Mehrere identische GWR-Adressen "
-        "werden pro EGID nur einmal gezählt.",
+        "review_address_suffix",
+        "Ausgangspunkt ist immer die GVBSID mit ihrer "
+        "GVBS-Adresse. Nach einem eindeutigen direkten "
+        "EGID-Adresstreffer werden weitere EGIDs "
+        "auf denselben EGRIDs untersucht. "
+        "Bei gleicher Strasse und PLZ sowie einer "
+        "Hausnummer mit Zusatz wird geprüft, ob "
+        "für diese zusätzliche GWR-Adresse eine "
+        "eigene GVBSID im eingelesenen Datensatz "
+        "vorhanden ist.",
+        "Bei fehlender eigener GVBSID wird die "
+        "automatische Zuordnung verhindert.",
+    ])
+
+    notes.append([
+        "Hausnummernzusätze",
+        "Erkannt werden nummerierte Zusätze wie "
+        "30.1 oder 30.12 sowie Buchstabenzusätze "
+        "wie 30a oder 30ab. "
+        "Nicht erkannt werden beispielsweise "
+        "30/31 oder abweichende Hausnummern wie 31.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Die EGRID-Zuordnung basiert auf "
-        "dem EGRID-Feld der GWR-Tabelle building. "
-        "Weitere Grundstücksbeziehungen sind "
-        "damit nicht vollständig nachgewiesen.",
+        "super_match",
+        "Die konkrete Begründung wird für jede GVBSID "
+        "einzeln berechnet. Alle Abweichungen von "
+        "perfect_match werden mit EGIDs, EGRIDs "
+        "und GWR-Adressen dokumentiert.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Die Kategorie good_match bleibt "
-        "bis zur Verfügbarkeit vollständiger "
-        "Grundstücksbeziehungen reserviert.",
+        "GWR-Datenbestand",
+        "Es werden ausschliesslich bestehende Gebäude "
+        "mit GSTAT = 1004 berücksichtigt.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Nur perfect_match führt zu einer "
-        "automatischen EGID-Zuordnung.",
+        "Einschränkung",
+        "Die verwendete GWR-building.EGRID-Spalte "
+        "kann nicht sämtliche Grundstücksbeziehungen "
+        "eines Gebäudes abbilden.",
         "",
     ])
 
     notes.append([
-        "Hinweis",
-        "Die Matching-Zusammenfassung unterscheidet "
-        "ausdrücklich zwischen der bei der GVBS "
-        "hinterlegten Adresse und den im GWR "
-        "gespeicherten Adressen.",
+        "Prüfumfang",
+        "Konkurrierende GVBSIDs und das Fehlen einer "
+        "eigenen GVBSID an einer zusätzlichen GWR-Adresse "
+        "werden ausschliesslich anhand der eingelesenen "
+        "GVBS-Excel-Datei beurteilt. "
+        "Ein fehlender Eintrag in dieser Datei beweist "
+        "nicht, dass bei der GVBS keine entsprechende "
+        "GVBSID existiert.",
+        "",
+    ])
+
+    notes.append([
+        "Eindeutigkeit",
+        "Ein eindeutiger Adresstreffer ist eine "
+        "datenbasierte Zuordnung, aber kein unabhängiger "
+        "Nachweis der tatsächlichen Gebäudeidentität.",
         "",
     ])
 
@@ -1138,11 +1543,11 @@ def save_excel(path, headers, results):
     # FORMATIERUNG
     # --------------------------------------------------------
 
-    for ws in workbook.worksheets:
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
+    for sheet in wb.worksheets:
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
 
-        for cell in ws[1]:
+        for cell in sheet[1]:
             cell.font = Font(
                 bold=True,
                 color="FFFFFF",
@@ -1158,65 +1563,104 @@ def save_excel(path, headers, results):
                 vertical="center",
             )
 
-        if ws.title == "Matching":
-            for index, column in enumerate(
-                columns,
-                start=1,
+        sheet.row_dimensions[1].height = 32
+
+    for index, column in enumerate(
+        columns,
+        start=1,
+    ):
+        letter = get_column_letter(index)
+
+        if column == "Matching-Zusammenfassung":
+            width = 110
+
+        elif column == "Match-Kommentar":
+            width = 75
+
+        elif column == "Matching-Kategorie":
+            width = 43
+
+        elif column in (
+            "EGID-Kandidaten",
+            "EGRID-Kandidaten",
+            "EGID mit Hausnummernzusatz",
+            "GWR-Adressen mit Hausnummernzusatz",
+            "EGRID der Hausnummernzusätze",
+        ):
+            width = 45
+
+        else:
+            width = min(
+                max(len(column) + 4, 16),
+                32,
+            )
+
+        ws.column_dimensions[letter].width = width
+
+    # --------------------------------------------------------
+    # KATEGORIEN EINFÄRBEN
+    # --------------------------------------------------------
+
+    for row in ws.iter_rows(min_row=2):
+        category = None
+
+        for cell in row:
+            if (
+                columns[cell.column - 1]
+                == "Matching-Kategorie"
             ):
-                letter = get_column_letter(index)
+                category = cell.value
+                break
 
-                if column == "Matching-Zusammenfassung":
-                    width = 110
+        if category == "perfect_match":
+            fill_color = "E2F0D9"
 
-                elif column == "Match-Kommentar":
-                    width = 85
+        elif category == "super_match":
+            fill_color = "DDEBF7"
 
-                elif column == "Matching-Kategorie":
-                    width = 38
+        elif category == "review_address_suffix":
+            fill_color = "FFF2CC"
 
-                elif "GWR-Adressen" in column:
-                    width = 65
+        elif category in (
+            "multiple_gvbsid_same_address_one_egid",
+            "multiple_gvbsid_one_egid",
+        ):
+            fill_color = "FCE4D6"
 
-                elif column in (
-                    "EGIDs aus Adressmatching",
-                    "EGIDs auf zugehöriger EGRID (Liste)",
-                    "EGRIDs aus Adressmatching",
-                ):
-                    width = 40
+        else:
+            fill_color = None
 
-                else:
-                    width = 22
+        for cell in row:
+            if fill_color:
+                cell.fill = PatternFill(
+                    "solid",
+                    fgColor=fill_color,
+                )
 
-                ws.column_dimensions[letter].width = width
-
-            # Fliesstext mit Zeilenumbruch anzeigen
-            summary_col = columns.index(
-                "Matching-Zusammenfassung"
-            ) + 1
-
-            for row in ws.iter_rows(min_row=2):
-                row[summary_col - 1].alignment = Alignment(
+            if columns[cell.column - 1] in (
+                "Match-Kommentar",
+                "Matching-Zusammenfassung",
+            ):
+                cell.alignment = Alignment(
                     wrap_text=True,
                     vertical="top",
                 )
 
-        elif ws.title == "Kategorien-Hinweise":
-            ws.column_dimensions["A"].width = 38
-            ws.column_dimensions["B"].width = 100
-            ws.column_dimensions["C"].width = 75
+    summary.column_dimensions["A"].width = 48
+    summary.column_dimensions["B"].width = 20
 
-            for row in ws.iter_rows(min_row=2):
-                for cell in row:
-                    cell.alignment = Alignment(
-                        wrap_text=True,
-                        vertical="top",
-                    )
+    notes.column_dimensions["A"].width = 48
+    notes.column_dimensions["B"].width = 110
+    notes.column_dimensions["C"].width = 75
 
-        else:
-            ws.column_dimensions["A"].width = 38
-            ws.column_dimensions["B"].width = 18
+    for row in notes.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(
+                wrap_text=True,
+                vertical="top",
+            )
 
-    workbook.save(path)
+    wb.save(path)
 
 
 # ============================================================
@@ -1245,18 +1689,25 @@ def main():
     parser.add_argument(
         "--gwr-db",
         type=Path,
-        default=GWR_DB,
+        default=DEFAULT_GWR_DB,
     )
 
     args = parser.parse_args()
 
-    if args.input.resolve() == args.output.resolve():
+    if (
+        args.input.resolve()
+        == args.output.resolve()
+    ):
         parser.error(
-            "Eingabe- und Ausgabedatei dürfen "
-            "nicht identisch sein."
+            "Eingabe und Ausgabe dürfen nicht identisch sein."
         )
 
-    gwr = read_gwr(args.gwr_db)
+    (
+        addr_egids,
+        egid_addresses,
+        egid_grids,
+        grid_egids,
+    ) = read_gwr(args.gwr_db)
 
     headers, records = read_excel(
         args.input
@@ -1264,7 +1715,10 @@ def main():
 
     results = match(
         records,
-        *gwr,
+        addr_egids,
+        egid_addresses,
+        egid_grids,
+        grid_egids,
     )
 
     save_excel(
@@ -1273,19 +1727,40 @@ def main():
         results,
     )
 
+    print()
     print(
         f"Ergebnis: {args.output.resolve()}"
     )
+    print()
 
     counts = Counter(
-        record["Matching-Kategorie"]
-        for record in results
+        result["Matching-Kategorie"]
+        for result in results
     )
 
-    for category, count in sorted(counts.items()):
+    for category, count in sorted(
+        counts.items()
+    ):
         print(
             f"  {category}: {count}"
         )
+
+    assigned = sum(
+        result["Automatische Zuordnung"] == "Ja"
+        for result in results
+    )
+
+    print()
+    print(
+        f"Gesamt: {len(results)}"
+    )
+    print(
+        f"Automatisch zugeordnet: {assigned}"
+    )
+    print(
+        "Nicht automatisch zugeordnet: "
+        f"{len(results) - assigned}"
+    )
 
 
 if __name__ == "__main__":
