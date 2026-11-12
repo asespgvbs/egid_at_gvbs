@@ -1042,24 +1042,37 @@ def save_excel(path, headers, results, records):
         "",
     ])
     # --------------------------------------------------------
-    # IMPORTWERTE MIT ZUGEORDNETER EGID
+    # IMPORTWERTE MIT SUCHADRESSE UND ZUGEORDNETER EGID
     # --------------------------------------------------------
     outcome = wb.create_sheet("Egebnis")
-    egid_position = next(
+    insert_position = next(
         index + 1
         for index, column in enumerate(headers)
         if COLUMN_ALIASES.get(column, column) == "Postleitzahl"
     )
     outcome_columns = list(headers)
-    outcome_columns.insert(egid_position, "EGID")
+    outcome_columns[insert_position:insert_position] = ["Suchadresse", "EGID"]
     outcome.append(outcome_columns)
     for record, result in zip(records, results, strict=True):
         values = [record.get(column) for column in headers]
-        values.insert(egid_position, result["EGID"])
+        address_fields = {
+            COLUMN_ALIASES.get(column, column): value
+            for column, value in record.items()
+        }
+        house_number = re.sub(
+            r"\s+", "",
+            txt(address_fields["Hausnummer"]) + txt(address_fields.get("Hausnummer Zusatz")),
+        )
+        search_address = address_text((
+            txt(address_fields["Strasse"]),
+            house_number,
+            txt(address_fields["Postleitzahl"]),
+        ))
+        values[insert_position:insert_position] = [search_address, result["EGID"]]
         outcome.append(values)
     for index, column in enumerate(outcome_columns, start=1):
-        outcome.column_dimensions[get_column_letter(index)].width = min(
-            max(len(column) + 4, 16), 32
+        outcome.column_dimensions[get_column_letter(index)].width = (
+            50 if column == "Suchadresse" else min(max(len(column) + 4, 16), 32)
         )
     # --------------------------------------------------------
     # FORMATIERUNG

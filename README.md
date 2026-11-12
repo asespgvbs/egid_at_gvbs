@@ -25,7 +25,10 @@ Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
 Die Ausgabedatei enthält weiterhin `Matching`, `Zusammenfassung` und
 `Kategorien-Hinweise`. Das zusätzliche Blatt `Egebnis` enthält alle importierten
 Spalten und Werte in derselben Reihenfolge. Direkt nach `Postleitzahl` (bei
-älteren Dateien `PLZ`) wird die Spalte `EGID` eingefügt. Sie enthält nur die
+älteren Dateien `PLZ`) werden die Spalten `Suchadresse` und `EGID` eingefügt.
+`Suchadresse` verbindet Strasse, Hausnummer samt Zusatz und Postleitzahl in
+einem Feld, beispielsweise `Teststrasse 30a 0000`. Zwischen Hausnummer und
+Zusatz steht kein Leerzeichen. Die Spalte `EGID` enthält nur die
 automatisch zugeordnete EGID aus `perfect_match` oder `super_match`; bei
 Prüffällen und fehlenden Treffern bleibt sie leer.
 

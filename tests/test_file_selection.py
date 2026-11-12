@@ -221,10 +221,10 @@ class OutputWorkbookTests(unittest.TestCase):
         output.seek(0)
         return app.load_workbook(output)
 
-    def test_result_sheet_preserves_import_and_inserts_only_assigned_egid(self):
+    def test_result_sheet_preserves_import_and_inserts_search_address_and_assigned_egid(self):
         headers = [*app.REQUIRED, "Notiz", "Zusätzliche Zahl"]
         rows = [
-            ["SYNTHETIC-1", "1", "Synthetische Teststrasse", 12, "a", "0000", "Treffer", 123],
+            ["SYNTHETIC-1", "1", "Synthetische Teststrasse", 12, " a ", "0000", "Treffer", 123],
             ["SYNTHETIC-2", "2", "Synthetische Teststrasse", 99, None, "0000", "Kein Treffer", None],
             ["SYNTHETIC-3", "3", "Synthetische Teststrasse", 13, None, "0000", "Mehrdeutig", 0],
             ["SYNTHETIC-4", "4", "Synthetische Teststrasse", 14, None, "0000", "Zusatzkonflikt", 456],
@@ -251,11 +251,20 @@ class OutputWorkbookTests(unittest.TestCase):
         self.addCleanup(workbook.close)
         self.assertEqual(workbook.sheetnames, ["Matching", "Zusammenfassung", "Kategorien-Hinweise", "Egebnis"])
         outcome = list(workbook["Egebnis"].values)
-        self.assertEqual(outcome[0], tuple(headers[:6] + ["EGID"] + headers[6:]))
-        for original, exported, egid in zip(rows, outcome[1:], [900000001, None, None, None, 900000006], strict=True):
-            self.assertEqual(exported, tuple(original[:6] + [egid] + original[6:]))
+        self.assertEqual(outcome[0], tuple(headers[:6] + ["Suchadresse", "EGID"] + headers[6:]))
+        search_addresses = [
+            "Synthetische Teststrasse 12a 0000",
+            "Synthetische Teststrasse 99 0000",
+            "Synthetische Teststrasse 13 0000",
+            "Synthetische Teststrasse 14 0000",
+            "Synthetische Teststrasse 15 0000",
+        ]
+        for original, exported, search_address, egid in zip(
+            rows, outcome[1:], search_addresses, [900000001, None, None, None, 900000006], strict=True,
+        ):
+            self.assertEqual(exported, tuple(original[:6] + [search_address, egid] + original[6:]))
         self.assertEqual(workbook["Egebnis"].freeze_panes, "A2")
-        self.assertEqual(workbook["Egebnis"].auto_filter.ref, "A1:I6")
+        self.assertEqual(workbook["Egebnis"].auto_filter.ref, "A1:J6")
         matching_headers = next(workbook["Matching"].values)
         self.assertIn("Matching-Kategorie", matching_headers)
         self.assertIn("Matching-Zusammenfassung", matching_headers)
@@ -269,14 +278,14 @@ class OutputWorkbookTests(unittest.TestCase):
         workbook = self.create_output(headers, records, results)
         self.addCleanup(workbook.close)
         self.assertEqual(list(workbook["Egebnis"].values), [
-            tuple(headers[:5] + ["EGID"] + headers[5:]),
-            tuple(row[:5] + [None] + row[5:]),
+            tuple(headers[:5] + ["Suchadresse", "EGID"] + headers[5:]),
+            tuple(row[:5] + ["Synthetische Teststrasse 12 0000", None] + row[5:]),
         ])
 
     def test_empty_import_creates_all_sheets_and_result_headers(self):
         workbook = self.create_output(list(app.REQUIRED), [], [])
         self.addCleanup(workbook.close)
-        self.assertEqual(list(workbook["Egebnis"].values), [tuple([*app.REQUIRED, "EGID"])])
+        self.assertEqual(list(workbook["Egebnis"].values), [tuple([*app.REQUIRED, "Suchadresse", "EGID"])])
         self.assertEqual(len(workbook.worksheets), 4)
 
 
