@@ -10,10 +10,24 @@ cd C:\dev\repos\egid_match
 .\.venv\Scripts\python.exe main.py
 ```
 
-Erwartete Pflichtspalten: `Kontrollnummer`, `Gebäudenummer`, `Strassennamen`,
-`Hausnummer` und `PLZ`. Die bisherigen Spaltennamen `Gebäude (Nr.)`, `Strasse`
-und `Nr.` werden beim Einlesen ebenfalls akzeptiert und auf die neuen Namen
-vereinheitlicht. Die Ausgabe verwendet die neuen Spaltennamen.
+Die Eingabe enthält diese Spalten und darf danach beliebige weitere Spalten
+enthalten:
+
+| Kontrollnummer | Gebäudenummer | Strasse | Hausnummer | Hausnummer Zusatz | Postleitzahl |
+| --- | --- | --- | --- | --- | --- |
+
+`Hausnummer Zusatz` darf leer sein. Beim Adressvergleich werden Hausnummer und
+Zusatz verbunden: `30` und `a` ergeben `30a`, `30` und `.1` ergeben `30.1`.
+Die ursprünglichen Werte bleiben im Import erhalten. Die bisherigen Namen
+`Gebäude (Nr.)`, `Strassennamen`, `Nr.` und `PLZ` werden weiterhin akzeptiert.
+Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
+
+Die Ausgabedatei enthält weiterhin `Matching`, `Zusammenfassung` und
+`Kategorien-Hinweise`. Das zusätzliche Blatt `Egebnis` enthält alle importierten
+Spalten und Werte in derselben Reihenfolge. Direkt nach `Postleitzahl` (bei
+älteren Dateien `PLZ`) wird die Spalte `EGID` eingefügt. Sie enthält nur die
+automatisch zugeordnete EGID aus `perfect_match` oder `super_match`; bei
+Prüffällen und fehlenden Treffern bleibt sie leer.
 
 ## Rückfall beim Abbrechen
 
@@ -39,9 +53,9 @@ Vorschläge für die Dialoge.
 
 ## Prüfung ohne Datendateien
 
-Die Tests simulieren die Dialoge und ersetzen sämtliche Excel- und
-Datenbankzugriffe. Sie verwenden ausschliesslich synthetische Datensätze und
-öffnen keine Dialogfenster:
+Die Tests simulieren die Dialoge und Datei-/Datenbankzugriffe. Excel-Import und
+-Export werden ausschliesslich mit synthetischen Datensätzen im Arbeitsspeicher
+geprüft. Es werden keine Datendateien oder Dialogfenster geöffnet:
 
 ```powershell
 .\.venv\Scripts\python.exe -I -B tests\test_file_selection.py

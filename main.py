@@ -18,14 +18,16 @@ TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
 REQUIRED = (
     "Kontrollnummer",
     "Gebäudenummer",
-    "Strassennamen",
+    "Strasse",
     "Hausnummer",
-    "PLZ",
+    "Hausnummer Zusatz",
+    "Postleitzahl",
 )
 COLUMN_ALIASES = {
     "Gebäude (Nr.)": "Gebäudenummer",
-    "Strasse": "Strassennamen",
+    "Strassennamen": "Strasse",
     "Nr.": "Hausnummer",
+    "PLZ": "Postleitzahl",
 }
 CATEGORIES = [
     (
@@ -366,18 +368,18 @@ def read_excel(path):
             raise ValueError(
                 "Excel-Datei ist leer."
             )
-        headers = [
-            COLUMN_ALIASES.get(txt(value), txt(value))
-            for value in first
-        ]
-        if len(headers) != len(set(headers)):
+        headers = [txt(value) for value in first]
+        matching_headers = [COLUMN_ALIASES.get(column, column) for column in headers]
+        if len(matching_headers) != len(set(matching_headers)):
             raise ValueError(
                 "Doppelte Spaltennamen in der Eingabe."
             )
         missing = [
             column
             for column in REQUIRED
-            if column not in headers
+            if column not in matching_headers
+            # Ältere Testdateien enthalten noch keinen separaten Zusatz.
+            and column != "Hausnummer Zusatz"
         ]
         if missing:
             raise ValueError(
@@ -571,23 +573,29 @@ def match(
     egid_grids,
     grid_egids,
 ):
+    matching_records = [
+        {COLUMN_ALIASES.get(column, column): value for column, value in record.items()}
+        for record in records
+    ]
     # --------------------------------------------------------
     # GVBS-ADRESSEN UND GVBSIDs AUFBEREITEN
     # --------------------------------------------------------
     keys = [
         address(
-            record["Strassennamen"],
-            record["Hausnummer"],
-            record["PLZ"],
+            record["Strasse"],
+            txt(record["Hausnummer"]) + txt(record.get("Hausnummer Zusatz"))
+            if txt(record["Hausnummer"])
+            else "",
+            record["Postleitzahl"],
         )
-        for record in records
+        for record in matching_records
     ]
     gvbs_keys = [
         (
             txt(record["Kontrollnummer"]),
             txt(record["Gebäudenummer"]),
         )
-        for record in records
+        for record in matching_records
     ]
     valid = [
         all(key) and all(gvbs_key)
@@ -847,7 +855,7 @@ def match(
 # ============================================================
 # EXCEL-AUSGABE
 # ============================================================
-def save_excel(path, headers, results):
+def save_excel(path, headers, results, records):
     wb = Workbook()
     ws = wb.active
     ws.title = "Matching"
@@ -1026,6 +1034,26 @@ def save_excel(path, headers, results):
         "Nachweis der tatsächlichen Gebäudeidentität.",
         "",
     ])
+    # --------------------------------------------------------
+    # IMPORTWERTE MIT ZUGEORDNETER EGID
+    # --------------------------------------------------------
+    outcome = wb.create_sheet("Egebnis")
+    egid_position = next(
+        index + 1
+        for index, column in enumerate(headers)
+        if COLUMN_ALIASES.get(column, column) == "Postleitzahl"
+    )
+    outcome_columns = list(headers)
+    outcome_columns.insert(egid_position, "EGID")
+    outcome.append(outcome_columns)
+    for record, result in zip(records, results, strict=True):
+        values = [record.get(column) for column in headers]
+        values.insert(egid_position, result["EGID"])
+        outcome.append(values)
+    for index, column in enumerate(outcome_columns, start=1):
+        outcome.column_dimensions[get_column_letter(index)].width = min(
+            max(len(column) + 4, 16), 32
+        )
     # --------------------------------------------------------
     # FORMATIERUNG
     # --------------------------------------------------------
@@ -1221,6 +1249,7 @@ def main():
         args.output,
         headers,
         results,
+        records,
     )
     print()
     print(
