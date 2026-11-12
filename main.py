@@ -12,6 +12,9 @@ from openpyxl.utils import get_column_letter
 DEFAULT_GWR_DB = Path(
     r"C:\dev\private\gvbs_dash\archiv\gwr_daten_bs\data.sqlite"
 )
+DEFAULT_TEST_INPUT = Path(__file__).resolve().parent / "data" / "test_match_data.xlsx"
+DEFAULT_OUTPUT = Path("gebaeude_egid_matching.xlsx")
+TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
 REQUIRED = (
     "Kontrollnummer",
     "Gebäude (Nr.)",
@@ -1114,21 +1117,62 @@ def save_excel(path, headers, results):
 # ============================================================
 # HAUPTPROGRAMM
 # ============================================================
+def select_files(input_path, output_path):
+    """Dateien auswählen; Abbruch eines Dialogs verwirft beide Auswahlen."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        raise RuntimeError(str(exc)) from exc
+    root.withdraw()
+    try:
+        input_options = {
+            "parent": root,
+            "title": "GVBS-Eingabedatei auswählen",
+            "filetypes": [("Excel-Dateien", "*.xlsx")],
+        }
+        if input_path is not None:
+            input_options["initialdir"] = str(input_path.resolve().parent)
+            input_options["initialfile"] = input_path.name
+        selected_input = filedialog.askopenfilename(**input_options)
+        if not selected_input:
+            return None
+
+        selected_output = filedialog.asksaveasfilename(
+            parent=root,
+            title="Matching-Ergebnis speichern unter",
+            initialdir=str(output_path.resolve().parent),
+            initialfile=output_path.name,
+            defaultextension=".xlsx",
+            filetypes=[("Excel-Dateien", "*.xlsx")],
+            confirmoverwrite=True,
+        )
+        if not selected_output:
+            return None
+        return Path(selected_input), Path(selected_output)
+    except tk.TclError as exc:
+        raise RuntimeError(str(exc)) from exc
+    finally:
+        root.destroy()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Lokales GVBSID-EGID-Matching"
     )
     parser.add_argument(
         "--input",
-        required=True,
         type=Path,
+        default=DEFAULT_TEST_INPUT,
+        help="Test-Eingabedatei bei Dialogabbruch (Standard: data/test_match_data.xlsx).",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(
-            "gebaeude_egid_matching.xlsx"
-        ),
+        default=DEFAULT_OUTPUT,
+        help="Vorschlag für den Speicherdialog und Ausgabeordner des Testlaufs.",
     )
     parser.add_argument(
         "--gwr-db",
@@ -1136,6 +1180,15 @@ def main():
         default=DEFAULT_GWR_DB,
     )
     args = parser.parse_args()
+    try:
+        selected = select_files(args.input, args.output)
+    except (ImportError, RuntimeError) as exc:
+        parser.error(f"Dateidialog konnte nicht geöffnet werden: {exc}")
+    if selected is None:
+        args.output = args.output.with_name(TEST_OUTPUT_NAME)
+        print("Dateiauswahl abgebrochen: Testlauf mit der bisherigen Eingabedatei.")
+    else:
+        args.input, args.output = selected
     if (
         args.input.resolve()
         == args.output.resolve()
