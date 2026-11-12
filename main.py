@@ -156,6 +156,21 @@ def address_text(key):
         )
         if part
     )
+def search_address(record):
+    address_fields = {
+        COLUMN_ALIASES.get(column, column): value
+        for column, value in record.items()
+    }
+    house_number = re.sub(
+        r"\s+", "",
+        txt(address_fields["Hausnummer"]) + txt(address_fields.get("Hausnummer Zusatz")),
+    )
+    street_and_number = f"{txt(address_fields['Strasse'])} {house_number}".strip()
+    return ", ".join(
+        part
+        for part in (street_and_number, txt(address_fields["Postleitzahl"]))
+        if part
+    )
 def list_text(values):
     values = [str(value) for value in values]
     return ", ".join(values) if values else "keine"
@@ -163,6 +178,11 @@ def gvbsid_text(gvbsid):
     return f"{gvbsid[0]}-{gvbsid[1]}"
 def sorted_egids(values):
     return sorted(values, key=lambda value: str(value))
+def control_number_sort_key(value):
+    value = txt(value)
+    if re.fullmatch(r"[+-]?\d+", value):
+        return (0, int(value))
+    return (1, value.casefold()) if value else (2, "")
 # ============================================================
 # HAUSNUMMERNZUSÄTZE
 # ============================================================
@@ -863,6 +883,10 @@ def match(
 # EXCEL-AUSGABE
 # ============================================================
 def save_excel(path, headers, results, records):
+    sorted_rows = sorted(
+        zip(records, results, strict=True),
+        key=lambda row: control_number_sort_key(row[0]["Kontrollnummer"]),
+    )
     wb = Workbook()
     ws = wb.active
     ws.title = "Matching"
@@ -886,15 +910,22 @@ def save_excel(path, headers, results, records):
         "GWR-Adressen mit Hausnummernzusatz",
         "EGRID der Hausnummernzusätze",
     ]
-    columns = headers + [
+    leading_columns = ["Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"]
+    columns = leading_columns + [
+        column
+        for column in headers
+        if column not in leading_columns
+    ] + [
         column
         for column in extras
         if column not in headers
+        and column not in leading_columns
     ]
     ws.append(columns)
-    for result in results:
+    for record, result in sorted_rows:
+        matching_result = {**result, "Suchadresse": search_address(record)}
         ws.append([
-            result.get(column)
+            matching_result.get(column)
             for column in columns
         ])
     # --------------------------------------------------------
@@ -1044,7 +1075,7 @@ def save_excel(path, headers, results, records):
     # --------------------------------------------------------
     # IMPORTWERTE MIT SUCHADRESSE UND ZUGEORDNETER EGID
     # --------------------------------------------------------
-    outcome = wb.create_sheet("Egebnis")
+    outcome = wb.create_sheet("Ergebnis")
     insert_position = next(
         index + 1
         for index, column in enumerate(headers)
@@ -1053,22 +1084,9 @@ def save_excel(path, headers, results, records):
     outcome_columns = list(headers)
     outcome_columns[insert_position:insert_position] = ["Suchadresse", "EGID"]
     outcome.append(outcome_columns)
-    for record, result in zip(records, results, strict=True):
+    for record, result in sorted_rows:
         values = [record.get(column) for column in headers]
-        address_fields = {
-            COLUMN_ALIASES.get(column, column): value
-            for column, value in record.items()
-        }
-        house_number = re.sub(
-            r"\s+", "",
-            txt(address_fields["Hausnummer"]) + txt(address_fields.get("Hausnummer Zusatz")),
-        )
-        search_address = address_text((
-            txt(address_fields["Strasse"]),
-            house_number,
-            txt(address_fields["Postleitzahl"]),
-        ))
-        values[insert_position:insert_position] = [search_address, result["EGID"]]
+        values[insert_position:insert_position] = [search_address(record), result["EGID"]]
         outcome.append(values)
     for index, column in enumerate(outcome_columns, start=1):
         outcome.column_dimensions[get_column_letter(index)].width = (
@@ -1101,9 +1119,12 @@ def save_excel(path, headers, results, records):
         letter = get_column_letter(index)
         if column == "Matching-Zusammenfassung":
             width = 110
+        elif column == "Suchadresse":
+            width = 50
         elif column == "Matching-Kategorie":
             width = 43
         elif column in (
+            "Zweckbestimmung",
             "EGID-Kandidaten",
             "EGRID-Kandidaten",
             "EGID mit Hausnummernzusatz",
@@ -1136,7 +1157,8 @@ def save_excel(path, headers, results, records):
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             if columns[cell.column - 1] in (
-                        "Matching-Zusammenfassung",
+                "Matching-Zusammenfassung",
+                "Zweckbestimmung",
             ):
                 cell.alignment = Alignment(
                     wrap_text=True,

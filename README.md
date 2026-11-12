@@ -23,12 +23,23 @@ Die ursprünglichen Werte bleiben im Import erhalten. Die bisherigen Namen
 Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
 
 Die Ausgabedatei enthält weiterhin `Matching`, `Zusammenfassung` und
-`Kategorien-Hinweise`. Das zusätzliche Blatt `Egebnis` enthält alle importierten
-Spalten und Werte in derselben Reihenfolge. Direkt nach `Postleitzahl` (bei
+`Kategorien-Hinweise`. Im Blatt `Matching` stehen zuerst `Suchadresse`,
+`GVBSID`, `Matching-Zusammenfassung` und `Zweckbestimmung`, danach folgen die
+übrigen Spalten. `Zweckbestimmung` übernimmt den importierten Wert; fehlt die
+Spalte in der Eingabe, bleibt sie in `Matching` leer.
+Die Suchadresse wird in `Matching` und `Ergebnis` identisch aufgebaut.
+Beide Tabellen werden aufsteigend nach `Kontrollnummer` sortiert. Zahlen und
+als Text gespeicherte ganze Zahlen werden numerisch sortiert (2 vor 10),
+danach folgen andere Texte und zuletzt leere Kontrollnummern. Bei gleicher
+Kontrollnummer bleibt die ursprüngliche Reihenfolge erhalten.
+Das zusätzliche Blatt `Ergebnis` enthält alle importierten
+Spalten in ursprünglicher Spaltenreihenfolge und ihre Originalwerte.
+Direkt nach `Postleitzahl` (bei
 älteren Dateien `PLZ`) werden die Spalten `Suchadresse` und `EGID` eingefügt.
 `Suchadresse` verbindet Strasse, Hausnummer samt Zusatz und Postleitzahl in
-einem Feld, beispielsweise `Teststrasse 30a 0000`. Zwischen Hausnummer und
-Zusatz steht kein Leerzeichen. Die Spalte `EGID` enthält nur die
+einem Feld, beispielsweise `Teststrasse 30a, 0000`. Zwischen Hausnummer und
+Zusatz steht kein Leerzeichen; vor der Postleitzahl stehen ein Komma und ein
+Leerzeichen. Die Spalte `EGID` enthält nur die
 automatisch zugeordnete EGID aus `perfect_match` oder `super_match`; bei
 Prüffällen und fehlenden Treffern bleibt sie leer.
 

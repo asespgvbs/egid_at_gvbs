@@ -222,13 +222,13 @@ class OutputWorkbookTests(unittest.TestCase):
         return app.load_workbook(output)
 
     def test_result_sheet_preserves_import_and_inserts_search_address_and_assigned_egid(self):
-        headers = [*app.REQUIRED, "Notiz", "Zusätzliche Zahl"]
+        headers = [*app.REQUIRED, "Notiz", "Zweckbestimmung", "Zusätzliche Zahl"]
         rows = [
-            ["SYNTHETIC-1", "1", "Synthetische Teststrasse", 12, " a ", "0000", "Treffer", 123],
-            ["SYNTHETIC-2", "2", "Synthetische Teststrasse", 99, None, "0000", "Kein Treffer", None],
-            ["SYNTHETIC-3", "3", "Synthetische Teststrasse", 13, None, "0000", "Mehrdeutig", 0],
-            ["SYNTHETIC-4", "4", "Synthetische Teststrasse", 14, None, "0000", "Zusatzkonflikt", 456],
-            ["SYNTHETIC-5", "5", "Synthetische Teststrasse", 15, None, "0000", "Super-Match", 789],
+            [10, "1", "Synthetische Teststrasse", 12, " a ", "0000", "Treffer", "Synthetischer Zweck 1", 123],
+            ["2", "2", "Synthetische Teststrasse", 99, None, "0000", "Kein Treffer", "Synthetischer Zweck 2", None],
+            [2, "3", "Synthetische Teststrasse", 13, None, "0000", "Mehrdeutig", "Synthetischer Zweck 3", 0],
+            [1, "4", "Synthetische Teststrasse", 14, None, "0000", "Zusatzkonflikt", "Synthetischer Zweck 4", 456],
+            ["003", "5", "Synthetische Teststrasse", 15, None, "0000", "Super-Match", "Synthetischer Zweck 5", 789],
         ]
         records = [dict(zip(headers, row)) for row in rows]
         key = lambda number: app.address("Synthetische Teststrasse", number, "0000")
@@ -249,23 +249,44 @@ class OutputWorkbookTests(unittest.TestCase):
         ])
         workbook = self.create_output(headers, records, results)
         self.addCleanup(workbook.close)
-        self.assertEqual(workbook.sheetnames, ["Matching", "Zusammenfassung", "Kategorien-Hinweise", "Egebnis"])
-        outcome = list(workbook["Egebnis"].values)
+        self.assertEqual(workbook.sheetnames, ["Matching", "Zusammenfassung", "Kategorien-Hinweise", "Ergebnis"])
+        outcome = list(workbook["Ergebnis"].values)
         self.assertEqual(outcome[0], tuple(headers[:6] + ["Suchadresse", "EGID"] + headers[6:]))
         search_addresses = [
-            "Synthetische Teststrasse 12a 0000",
-            "Synthetische Teststrasse 99 0000",
-            "Synthetische Teststrasse 13 0000",
-            "Synthetische Teststrasse 14 0000",
-            "Synthetische Teststrasse 15 0000",
+            "Synthetische Teststrasse 12a, 0000",
+            "Synthetische Teststrasse 99, 0000",
+            "Synthetische Teststrasse 13, 0000",
+            "Synthetische Teststrasse 14, 0000",
+            "Synthetische Teststrasse 15, 0000",
         ]
-        for original, exported, search_address, egid in zip(
-            rows, outcome[1:], search_addresses, [900000001, None, None, None, 900000006], strict=True,
-        ):
-            self.assertEqual(exported, tuple(original[:6] + [search_address, egid] + original[6:]))
-        self.assertEqual(workbook["Egebnis"].freeze_panes, "A2")
-        self.assertEqual(workbook["Egebnis"].auto_filter.ref, "A1:J6")
-        matching_headers = next(workbook["Matching"].values)
+        # Zahlen und Textzahlen gemeinsam sortieren; gleiche Nummern bleiben stabil.
+        expected_order = [3, 1, 2, 4, 0]
+        assigned_egids = [900000001, None, None, None, 900000006]
+        for index, exported in zip(expected_order, outcome[1:], strict=True):
+            original = rows[index]
+            self.assertEqual(
+                exported,
+                tuple(original[:6] + [search_addresses[index], assigned_egids[index]] + original[6:]),
+            )
+        self.assertEqual([row[0] for row in outcome[1:]], [1, "2", 2, "003", 10])
+        self.assertEqual(workbook["Ergebnis"].freeze_panes, "A2")
+        self.assertEqual(workbook["Ergebnis"].auto_filter.ref, "A1:K6")
+        matching_rows = list(workbook["Matching"].values)
+        matching_headers = matching_rows[0]
+        self.assertEqual(matching_headers[:4], ("Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"))
+        remaining_headers = tuple(column for column in headers if column != "Zweckbestimmung")
+        self.assertEqual(matching_headers[4:4 + len(remaining_headers)], remaining_headers)
+        self.assertEqual(matching_headers.count("Zweckbestimmung"), 1)
+        for index, exported in zip(expected_order, matching_rows[1:], strict=True):
+            result = results[index]
+            self.assertEqual(exported[:4], (
+                search_addresses[index], result["GVBSID"], result["Matching-Zusammenfassung"], rows[index][-2],
+            ))
+            self.assertEqual(exported[matching_headers.index("EGID")], assigned_egids[index])
+        self.assertEqual(
+            [row[matching_headers.index("Kontrollnummer")] for row in matching_rows[1:]],
+            [1, "2", 2, "003", 10],
+        )
         self.assertIn("Matching-Kategorie", matching_headers)
         self.assertIn("Matching-Zusammenfassung", matching_headers)
         self.assertEqual(dict(list(workbook["Zusammenfassung"].values)[1:])["Gesamt"], 5)
@@ -277,15 +298,20 @@ class OutputWorkbookTests(unittest.TestCase):
         results = app.match(records, {}, {}, {}, {})
         workbook = self.create_output(headers, records, results)
         self.addCleanup(workbook.close)
-        self.assertEqual(list(workbook["Egebnis"].values), [
+        self.assertEqual(list(workbook["Ergebnis"].values), [
             tuple(headers[:5] + ["Suchadresse", "EGID"] + headers[5:]),
-            tuple(row[:5] + ["Synthetische Teststrasse 12 0000", None] + row[5:]),
+            tuple(row[:5] + ["Synthetische Teststrasse 12, 0000", None] + row[5:]),
         ])
+        matching_headers = next(workbook["Matching"].values)
+        self.assertEqual(matching_headers[:4], ("Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"))
+        self.assertIsNone(list(workbook["Matching"].values)[1][3])
+        self.assertEqual(matching_headers.count("GVBSID"), 1)
 
     def test_empty_import_creates_all_sheets_and_result_headers(self):
         workbook = self.create_output(list(app.REQUIRED), [], [])
         self.addCleanup(workbook.close)
-        self.assertEqual(list(workbook["Egebnis"].values), [tuple([*app.REQUIRED, "Suchadresse", "EGID"])])
+        self.assertEqual(list(workbook["Ergebnis"].values), [tuple([*app.REQUIRED, "Suchadresse", "EGID"])])
+        self.assertEqual(next(workbook["Matching"].values)[:4], ("Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"))
         self.assertEqual(len(workbook.worksheets), 4)
 
 
