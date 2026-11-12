@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "gvbs_egid_match.py"
-SPEC = importlib.util.spec_from_file_location("gvbs_egid_match", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[1] / "main.py"
+SPEC = importlib.util.spec_from_file_location("egid_match_main", SCRIPT)
 app = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(app)
 
@@ -67,9 +67,9 @@ class MainSelectionTests(unittest.TestCase):
             "read_gwr": patch.object(app, "read_gwr", return_value=({}, {}, {}, {})),
             "read_excel": patch.object(app, "read_excel", return_value=(list(app.REQUIRED), [{
                 "Kontrollnummer": "SYNTHETIC-1",
-                "Gebäude (Nr.)": "1",
-                "Strasse": "Synthetische Teststrasse",
-                "Nr.": "1",
+                "Gebäudenummer": "1",
+                "Strassennamen": "Synthetische Teststrasse",
+                "Hausnummer": "1",
                 "PLZ": "0000",
             }])),
             "save_excel": patch.object(app, "save_excel"),
@@ -121,6 +121,48 @@ class MainSelectionTests(unittest.TestCase):
         self.mocks["read_gwr"].assert_not_called()
         self.mocks["read_excel"].assert_not_called()
         self.mocks["save_excel"].assert_not_called()
+
+
+class InputColumnTests(unittest.TestCase):
+    def read_synthetic_workbook(self, headers):
+        workbook = Mock()
+        workbook.active.iter_rows.return_value = iter([
+            headers,
+            ["SYNTHETIC-1", "7", "Synthetische Teststrasse", "12", "0000"],
+        ])
+        with patch.object(app, "load_workbook", return_value=workbook):
+            return app.read_excel(Path("synthetic/input.xlsx"))
+
+    def test_new_and_legacy_headers_produce_same_matching_result(self):
+        new_headers = ["Kontrollnummer", "Gebäudenummer", "Strassennamen", "Hausnummer", "PLZ"]
+        legacy_headers = ["Kontrollnummer", "Gebäude (Nr.)", "Strasse", "Nr.", "PLZ"]
+        key = app.address("Synthetische Teststrasse", "12", "0000")
+        for headers in (new_headers, legacy_headers):
+            with self.subTest(headers=headers):
+                normalized, records = self.read_synthetic_workbook(headers)
+                self.assertEqual(normalized, new_headers)
+                results = app.match(
+                    records,
+                    {key: {900000001}},
+                    {900000001: {key}},
+                    {900000001: {"SYNTHETIC-EGRID"}},
+                    {"SYNTHETIC-EGRID": {900000001}},
+                )
+                self.assertEqual(results[0]["GVBSID"], "SYNTHETIC-1-7")
+                self.assertEqual(results[0]["EGID"], 900000001)
+                self.assertEqual(results[0]["Matching-Kategorie"], "perfect_match")
+
+    def test_missing_column_reports_new_name(self):
+        with self.assertRaisesRegex(ValueError, "Fehlende Spalten:.*Hausnummer"):
+            self.read_synthetic_workbook([
+                "Kontrollnummer", "Gebäudenummer", "Strassennamen", "Andere Spalte", "PLZ",
+            ])
+
+    def test_ambiguous_legacy_and_new_column_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Doppelte Spaltennamen"):
+            self.read_synthetic_workbook([
+                "Kontrollnummer", "Gebäudenummer", "Strassennamen", "Hausnummer", "PLZ", "Nr.",
+            ])
 
 
 if __name__ == "__main__":

@@ -7,8 +7,13 @@ Vor dem Überschreiben einer vorhandenen Datei fragt der Speicherdialog nach.
 
 ```powershell
 cd C:\dev\repos\egid_match
-.\.venv\Scripts\python.exe gvbs_egid_match.py
+.\.venv\Scripts\python.exe main.py
 ```
+
+Erwartete Pflichtspalten: `Kontrollnummer`, `Gebäudenummer`, `Strassennamen`,
+`Hausnummer` und `PLZ`. Die bisherigen Spaltennamen `Gebäude (Nr.)`, `Strasse`
+und `Nr.` werden beim Einlesen ebenfalls akzeptiert und auf die neuen Namen
+vereinheitlicht. Die Ausgabe verwendet die neuen Spaltennamen.
 
 ## Rückfall beim Abbrechen
 
@@ -24,7 +29,7 @@ unterstützt damit ebenfalls den Testlauf bei Dialogabbruch.
 Beispiel mit Platzhaltern für die bisherigen Testpfade:
 
 ```powershell
-.\.venv\Scripts\python.exe gvbs_egid_match.py --input "PFAD\testeingabe.xlsx" --output "AUSGABEORDNER\gebaeude_egid_matching.xlsx" --gwr-db "PFAD\test_gwr.sqlite"
+.\.venv\Scripts\python.exe main.py --input "PFAD\testeingabe.xlsx" --output "AUSGABEORDNER\gebaeude_egid_matching.xlsx" --gwr-db "PFAD\test_gwr.sqlite"
 ```
 
 `--gwr-db` bestimmt wie bisher die verwendete GWR-Datenbank. Ohne diese Option

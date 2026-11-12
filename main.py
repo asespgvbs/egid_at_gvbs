@@ -17,11 +17,16 @@ DEFAULT_OUTPUT = Path("gebaeude_egid_matching.xlsx")
 TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
 REQUIRED = (
     "Kontrollnummer",
-    "Gebäude (Nr.)",
-    "Strasse",
-    "Nr.",
+    "Gebäudenummer",
+    "Strassennamen",
+    "Hausnummer",
     "PLZ",
 )
+COLUMN_ALIASES = {
+    "Gebäude (Nr.)": "Gebäudenummer",
+    "Strasse": "Strassennamen",
+    "Nr.": "Hausnummer",
+}
 CATEGORIES = [
     (
         "perfect_match",
@@ -362,7 +367,7 @@ def read_excel(path):
                 "Excel-Datei ist leer."
             )
         headers = [
-            txt(value)
+            COLUMN_ALIASES.get(txt(value), txt(value))
             for value in first
         ]
         if len(headers) != len(set(headers)):
@@ -571,8 +576,8 @@ def match(
     # --------------------------------------------------------
     keys = [
         address(
-            record["Strasse"],
-            record["Nr."],
+            record["Strassennamen"],
+            record["Hausnummer"],
             record["PLZ"],
         )
         for record in records
@@ -580,7 +585,7 @@ def match(
     gvbs_keys = [
         (
             txt(record["Kontrollnummer"]),
-            txt(record["Gebäude (Nr.)"]),
+            txt(record["Gebäudenummer"]),
         )
         for record in records
     ]
@@ -936,7 +941,7 @@ def save_excel(path, headers, results):
     notes.append([
         "GVBSID",
         "Eine GVBSID besteht aus Kontrollnummer "
-        "und Gebäude (Nr.).",
+        "und Gebäudenummer.",
         "",
     ])
     notes.append([
