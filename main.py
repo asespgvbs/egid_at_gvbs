@@ -111,6 +111,13 @@ AUTO_CATEGORIES = {
     "perfect_match",
     "super_match",
 }
+CATEGORY_COLORS = {
+    "perfect_match": "E2F0D9",
+    "super_match": "DDEBF7",
+    "review_address_suffix": "FFF2CC",
+    "multiple_gvbsid_same_address_one_egid": "FCE4D6",
+    "multiple_gvbsid_one_egid": "FCE4D6",
+}
 # ============================================================
 # HILFSFUNKTIONEN
 # ============================================================
@@ -1100,34 +1107,21 @@ def save_excel(path, headers, results, records):
     # --------------------------------------------------------
     # KATEGORIEN EINFÄRBEN
     # --------------------------------------------------------
-    for row in ws.iter_rows(min_row=2):
-        category = None
-        for cell in row:
-            if (
-                columns[cell.column - 1]
-                == "Matching-Kategorie"
-            ):
-                category = cell.value
-                break
-        if category == "perfect_match":
-            fill_color = "E2F0D9"
-        elif category == "super_match":
-            fill_color = "DDEBF7"
-        elif category == "review_address_suffix":
-            fill_color = "FFF2CC"
-        elif category in (
-            "multiple_gvbsid_same_address_one_egid",
-            "multiple_gvbsid_one_egid",
-        ):
-            fill_color = "FCE4D6"
-        else:
-            fill_color = None
-        for cell in row:
+    for sheet, category_column in (
+        (ws, columns.index("Matching-Kategorie")),
+        (summary, 0),
+        (notes, 0),
+    ):
+        for row in sheet.iter_rows(min_row=2):
+            fill_color = CATEGORY_COLORS.get(row[category_column].value)
             if fill_color:
-                cell.fill = PatternFill(
-                    "solid",
-                    fgColor=fill_color,
-                )
+                for cell in row:
+                    cell.fill = PatternFill(
+                        "solid",
+                        fgColor=fill_color,
+                    )
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
             if columns[cell.column - 1] in (
                         "Matching-Zusammenfassung",
             ):
