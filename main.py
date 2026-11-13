@@ -52,6 +52,21 @@ CATEGORIES = [
         "perfect_match einzeln begründen.",
     ),
     (
+        "oneEgid_oneAddress_multipleGVBSIDs",
+        "Mehrere unterschiedliche GVBSIDs besitzen dieselbe "
+        "GVBS-Adresse und haben dieselbe EGID als einzigen "
+        "Adresskandidaten. Es liegt keine zusätzliche "
+        "konkurrierende GVBS-Adresse vor.",
+        "EGID automatisch allen beteiligten GVBSIDs zuordnen.",
+    ),
+    (
+        "oneEgid_multipleAddresses_multipleGVBSIDs",
+        "Mehrere unterschiedliche GVBSIDs mit unterschiedlichen "
+        "GVBS-Adressen haben dieselbe EGID als einzigen "
+        "Adresskandidaten. Mischfälle gehören ebenfalls hierher.",
+        "EGID automatisch allen beteiligten GVBSIDs zuordnen.",
+    ),
+    (
         "review_address_suffix",
         "Eine GVBSID besitzt einen eindeutigen direkten "
         "EGID-Adresstreffer. Auf derselben EGRID befindet sich "
@@ -64,19 +79,9 @@ CATEGORIES = [
         "mehrere EGIDs umfasst.",
     ),
     (
-        "oneEgid_oneAddress_multipleGVBSIDs",
-        "Mehrere unterschiedliche GVBSIDs besitzen dieselbe "
-        "GVBS-Adresse und haben dieselbe EGID als einzigen "
-        "Adresskandidaten. Es liegt keine zusätzliche "
-        "konkurrierende GVBS-Adresse vor.",
-        "Keine automatische Zuordnung. Mehrfacherfassung prüfen.",
-    ),
-    (
-        "oneEgid_multipleAddresses_multipleGVBSIDs",
-        "Mehrere unterschiedliche GVBSIDs mit unterschiedlichen "
-        "GVBS-Adressen haben dieselbe EGID als einzigen "
-        "Adresskandidaten. Mischfälle gehören ebenfalls hierher.",
-        "Keine automatische Zuordnung. Beziehung prüfen.",
+        "no_match",
+        "Keine passende bestehende EGID an der GVBS-Adresse.",
+        "Keine automatische Zuordnung.",
     ),
     (
         "multiple_egid",
@@ -97,11 +102,6 @@ CATEGORIES = [
         "Keine automatische Zuordnung. Daten prüfen.",
     ),
     (
-        "no_match",
-        "Keine passende bestehende EGID an der GVBS-Adresse.",
-        "Keine automatische Zuordnung.",
-    ),
-    (
         "invalid_input",
         "Mindestens ein Pflichtfeld fehlt.",
         "Eingabedaten korrigieren.",
@@ -110,6 +110,8 @@ CATEGORIES = [
 AUTO_CATEGORIES = {
     "perfect_match",
     "super_match",
+    "oneEgid_oneAddress_multipleGVBSIDs",
+    "oneEgid_multipleAddresses_multipleGVBSIDs",
 }
 CATEGORY_COLORS = {
     "perfect_match": "E2F0D9",
@@ -117,6 +119,11 @@ CATEGORY_COLORS = {
     "review_address_suffix": "FFF2CC",
     "oneEgid_oneAddress_multipleGVBSIDs": "FCE4D6",
     "oneEgid_multipleAddresses_multipleGVBSIDs": "E4DFEC",
+}
+# Excel begrenzt Blattnamen auf 31 Zeichen; Kategorien bleiben ausgeschrieben.
+CATEGORY_SHEET_TITLES = {
+    "oneEgid_oneAddress_multipleGVBSIDs": "oneEgid_oneAddr_multipleGVBSIDs",
+    "oneEgid_multipleAddresses_multipleGVBSIDs": "oneEgid_multiAddr_multiGVBSIDs",
 }
 # ============================================================
 # HILFSFUNKTIONEN
@@ -498,18 +505,14 @@ def create_summary(
     gvbs_addresses_by_id,
     suffix_conflicts,
 ):
-    """Kurzer Entscheidtext: Treffer, Besonderheiten, Ergebnis."""
+    """Beschreibt Adresstreffer und Besonderheiten ohne Ergebnissatz."""
     adresse = address_text(gvbs_address)
     if category == "invalid_input":
-        return (
-            f"GVBSID {gvbsid}: Pflichtangaben fehlen. "
-            "Ergebnis: Eingabedaten korrigieren; keine EGID übernommen."
-        )
+        return f"GVBSID {gvbsid}: Pflichtangaben fehlen."
     if category == "no_match":
         return (
             f"Kein GWR-Adresstreffer für {adresse} "
-            "(bestehende Gebäude, GSTAT 1004). "
-            "Ergebnis: Keine EGID übernommen."
+            "(bestehende Gebäude, GSTAT 1004)."
         )
 
     kandidaten = list_text(candidates)
@@ -522,8 +525,7 @@ def create_summary(
         return (
             f"{start} Einzige GVBSID mit diesem Adresstreffer; "
             "eine GWR-Adresse, eine EGRID und keine weitere "
-            "bestehende EGID auf dieser EGRID. "
-            f"Ergebnis: EGID {candidates[0]} übernommen (perfect_match)."
+            "bestehende EGID auf dieser EGRID."
         )
 
     if category == "super_match":
@@ -534,8 +536,7 @@ def create_summary(
         return (
             f"{start} Keine weitere GVBSID hat diese EGID als "
             "einzigen direkten Adresskandidaten. "
-            f"Besonderheiten: {besonderheiten} "
-            f"Ergebnis: EGID {candidates[0]} übernommen (super_match)."
+            f"Besonderheiten: {besonderheiten}"
         )
 
     if category == "review_address_suffix":
@@ -544,8 +545,7 @@ def create_summary(
             "derselben EGRID: "
             f"{suffix_conflicts_text(suffix_conflicts)}. "
             "Für diese Adressen fehlt im eingelesenen GVBS-Datensatz "
-            "eine eigene GVBSID. Ergebnis: Gebäudezuordnung prüfen; "
-            "keine EGID übernommen."
+            "eine eigene GVBSID."
         )
 
     if category in (
@@ -564,31 +564,21 @@ def create_summary(
                     f"{gvbsid_text(item)} ({list_text(address_text(a) for a in addresses)})"
                 )
             relation = "Mehrere GVBSIDs mit unterschiedlichen Adressen: " + "; ".join(entries) + "."
-        return (
-            f"{start} {relation} "
-            "Ergebnis: Beziehung prüfen; keine EGID übernommen."
-        )
+        return f"{start} {relation}"
 
     if category == "multiple_egid":
-        return (
-            f"{start} Mehrere EGIDs an derselben Adresse. "
-            "Ergebnis: Zuordnung prüfen; keine EGID übernommen."
-        )
+        return f"{start} Mehrere EGIDs an derselben Adresse."
 
     if category == "multiple_gvbsid_multiple_egid":
         return (
             f"{start} Mehrere GVBSIDs an dieser Adresse und "
-            "mehrere EGID-Kandidaten. Ergebnis: Zuordnung prüfen; "
-            "keine EGID übernommen."
+            "mehrere EGID-Kandidaten."
         )
 
     if category == "invalid_gwr_data":
-        return (
-            f"{start} Im GWR ist keine EGRID hinterlegt. "
-            "Ergebnis: GWR-Daten prüfen; keine EGID übernommen."
-        )
+        return f"{start} Im GWR ist keine EGRID hinterlegt."
 
-    return f"{start} Ergebnis: Manuelle Prüfung; keine EGID übernommen."
+    return start
 
 # ============================================================
 # MATCHING
@@ -937,6 +927,8 @@ def save_excel(path, headers, results, records):
     summary.append([
         "Kategorie",
         "Anzahl",
+        "Anteil am Gesamt",
+        "Kumuliert",
     ])
     counts = Counter(
         result["Matching-Kategorie"]
@@ -965,6 +957,16 @@ def save_excel(path, headers, results, records):
             for result in results
         ),
     ])
+    total_count = len(results)
+    cumulative_count = 0
+    for index, row in enumerate(summary.iter_rows(min_row=2, max_col=4)):
+        count = row[1].value
+        row[2].value = count / total_count if total_count else 0
+        row[2].number_format = "0.00%"
+        if index < len(CATEGORIES):
+            cumulative_count += count
+            row[3].value = cumulative_count / total_count if total_count else 0
+        row[3].number_format = "0.00%"
     # --------------------------------------------------------
     # KATEGORIEN-HINWEISE
     # --------------------------------------------------------
@@ -981,7 +983,9 @@ def save_excel(path, headers, results, records):
     notes.append([
         "Grundregel",
         "Die automatische Zuordnung erfolgt ausschliesslich "
-        "für perfect_match und super_match.",
+        "für folgende Kategorien: "
+        + ", ".join(name for name, _, _ in CATEGORIES if name in AUTO_CATEGORIES)
+        + ".",
         "",
     ])
     notes.append([
@@ -1000,7 +1004,8 @@ def save_excel(path, headers, results, records):
         "GVBS-Adressen",
         "Mehrere unterschiedliche GVBSIDs, die dieselbe "
         "EGID als einzigen Adresskandidaten haben, "
-        "verhindern die automatische Zuordnung.",
+        "werden dieser EGID automatisch zugeordnet. "
+        "Dies gilt bei gleicher und bei unterschiedlichen GVBS-Adressen.",
         "",
     ])
     notes.append([
@@ -1021,8 +1026,8 @@ def save_excel(path, headers, results, records):
         "für diese zusätzliche GWR-Adresse eine "
         "eigene GVBSID im eingelesenen Datensatz "
         "vorhanden ist.",
-        "Bei fehlender eigener GVBSID wird die "
-        "automatische Zuordnung verhindert.",
+        "In der Kategorie review_address_suffix erfolgt "
+        "keine automatische Zuordnung.",
     ])
     notes.append([
         "Hausnummernzusätze",
@@ -1093,6 +1098,18 @@ def save_excel(path, headers, results, records):
             50 if column == "Suchadresse" else min(max(len(column) + 4, 16), 32)
         )
     # --------------------------------------------------------
+    # KATEGORIEBLÄTTER HINTEN ANHÄNGEN
+    # --------------------------------------------------------
+    category_sheets = {}
+    for name, _, _ in CATEGORIES:
+        sheet = wb.create_sheet(CATEGORY_SHEET_TITLES.get(name, name))
+        sheet.append(columns)
+        category_sheets[name] = sheet
+    category_column = columns.index("Matching-Kategorie")
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        category_sheets[row[category_column]].append(row)
+    matching_sheets = [ws, *category_sheets.values()]
+    # --------------------------------------------------------
     # FORMATIERUNG
     # --------------------------------------------------------
     for sheet in wb.worksheets:
@@ -1137,12 +1154,13 @@ def save_excel(path, headers, results, records):
                 max(len(column) + 4, 16),
                 32,
             )
-        ws.column_dimensions[letter].width = width
+        for sheet in matching_sheets:
+            sheet.column_dimensions[letter].width = width
     # --------------------------------------------------------
     # KATEGORIEN EINFÄRBEN
     # --------------------------------------------------------
     for sheet, category_column in (
-        (ws, columns.index("Matching-Kategorie")),
+        *((sheet, category_column) for sheet in matching_sheets),
         (summary, 0),
         (notes, 0),
     ):
@@ -1154,18 +1172,21 @@ def save_excel(path, headers, results, records):
                         "solid",
                         fgColor=fill_color,
                     )
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            if columns[cell.column - 1] in (
-                "Matching-Zusammenfassung",
-                "Zweckbestimmung",
-            ):
-                cell.alignment = Alignment(
-                    wrap_text=True,
-                    vertical="top",
-                )
+    for sheet in matching_sheets:
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                if columns[cell.column - 1] in (
+                    "Matching-Zusammenfassung",
+                    "Zweckbestimmung",
+                ):
+                    cell.alignment = Alignment(
+                        wrap_text=True,
+                        vertical="top",
+                    )
     summary.column_dimensions["A"].width = 48
     summary.column_dimensions["B"].width = 20
+    summary.column_dimensions["C"].width = 22
+    summary.column_dimensions["D"].width = 20
     notes.column_dimensions["A"].width = 48
     notes.column_dimensions["B"].width = 110
     notes.column_dimensions["C"].width = 75

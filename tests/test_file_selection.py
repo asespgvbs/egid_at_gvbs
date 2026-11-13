@@ -206,9 +206,61 @@ class InputColumnTests(unittest.TestCase):
             ])
 
 
+def synthetic_assignment_case(numbers, candidates_by_number):
+    """Vollständig synthetische Zuordnung ohne Datei- oder Datenbankzugriff."""
+    records = [{
+        "Kontrollnummer": f"SYNTHETIC-{index}",
+        "Gebäudenummer": "1",
+        "Strasse": "Synthetische Teststrasse",
+        "Hausnummer": number,
+        "Hausnummer Zusatz": None,
+        "Postleitzahl": "0000",
+    } for index, number in enumerate(numbers)]
+    addr_egids = {}
+    egid_addresses = {}
+    egid_grids = {}
+    grid_egids = {}
+    for number, candidates in candidates_by_number.items():
+        key = app.address("Synthetische Teststrasse", number, "0000")
+        addr_egids[key] = set(candidates)
+        for egid in candidates:
+            grid = f"SYNTHETIC-EGRID-{egid}"
+            egid_addresses.setdefault(egid, set()).add(key)
+            egid_grids[egid] = {grid}
+            grid_egids[grid] = {egid}
+    return records, app.match(records, addr_egids, egid_addresses, egid_grids, grid_egids)
+
+
+class MultipleGvbsAssignmentTests(unittest.TestCase):
+    def test_same_address_assigns_egid_to_all_gvbsids(self):
+        _, results = synthetic_assignment_case(["10", "10"], {"10": {900000001}})
+        self.assertEqual([row["Matching-Kategorie"] for row in results], [
+            "oneEgid_oneAddress_multipleGVBSIDs",
+            "oneEgid_oneAddress_multipleGVBSIDs",
+        ])
+        self.assertEqual([row["EGID"] for row in results], [900000001, 900000001])
+        self.assertTrue(all(row["Automatische Zuordnung"] == "Ja" for row in results))
+
+    def test_different_addresses_and_mixed_cases_assign_egid_to_all_gvbsids(self):
+        for numbers in (["10", "12"], ["10", "10", "12"]):
+            with self.subTest(numbers=numbers):
+                _, results = synthetic_assignment_case(numbers, {"10": {900000001}, "12": {900000001}})
+                self.assertTrue(all(row["Matching-Kategorie"] == "oneEgid_multipleAddresses_multipleGVBSIDs" for row in results))
+                self.assertTrue(all(row["EGID"] == 900000001 for row in results))
+                self.assertTrue(all(row["Automatische Zuordnung"] == "Ja" for row in results))
+
+    def test_ambiguous_candidates_remain_unassigned(self):
+        for numbers, category in ((["10"], "multiple_egid"), (["10", "10"], "multiple_gvbsid_multiple_egid")):
+            with self.subTest(category=category):
+                _, results = synthetic_assignment_case(numbers, {"10": {900000001, 900000002}})
+                self.assertTrue(all(row["Matching-Kategorie"] == category for row in results))
+                self.assertTrue(all(row["EGID"] is None for row in results))
+                self.assertTrue(all(row["Automatische Zuordnung"] == "Nein" for row in results))
+
+
 class OutputWorkbookTests(unittest.TestCase):
     def create_output(self, headers, records, results):
-        # Echter Excel-Export ausschliesslich im Arbeitsspeicher.
+        # Nur Arbeitsmappen im Speicher; auch keine temporären Excel-Dateien.
         workbook = app.Workbook()
         with (
             patch.object(app, "Workbook", return_value=workbook),
@@ -216,10 +268,35 @@ class OutputWorkbookTests(unittest.TestCase):
         ):
             app.save_excel(Path("synthetic/output.xlsx"), headers, results, records)
         save.assert_called_once_with(Path("synthetic/output.xlsx"))
-        output = io.BytesIO()
-        workbook.save(output)
-        output.seek(0)
-        return app.load_workbook(output)
+        return workbook
+
+    def test_multiple_gvbs_assignments_reach_output_sheets_and_totals(self):
+        records, results = synthetic_assignment_case(
+            ["10", "10", "20", "22", "99"],
+            {"10": {900000001}, "20": {900000002}, "22": {900000002}},
+        )
+        workbook = self.create_output(list(app.REQUIRED), records, results)
+        self.addCleanup(workbook.close)
+        expected_egids = [900000001, 900000001, 900000002, 900000002, None]
+        for sheet_name in ("Matching", "Ergebnis"):
+            rows = list(workbook[sheet_name].values)
+            column = rows[0].index("EGID")
+            self.assertEqual([row[column] for row in rows[1:]], expected_egids)
+        overview = {row[0]: row[1:] for row in list(workbook["Zusammenfassung"].values)[1:]}
+        self.assertEqual(overview["Gesamt"], (5, 1, None))
+        self.assertEqual(overview["Automatisch zugeordnet"], (4, 0.8, None))
+        self.assertEqual(overview["Nicht automatisch zugeordnet"], (1, 0.2, None))
+        self.assertEqual(overview["oneEgid_oneAddress_multipleGVBSIDs"], (2, 0.4, 0.4))
+        self.assertEqual(overview["oneEgid_multipleAddresses_multipleGVBSIDs"], (2, 0.4, 0.8))
+        for category, egid in (("oneEgid_oneAddress_multipleGVBSIDs", 900000001),
+                               ("oneEgid_multipleAddresses_multipleGVBSIDs", 900000002)):
+            sheet = workbook[app.CATEGORY_SHEET_TITLES[category]]
+            rows = list(sheet.values)
+            column = rows[0].index("EGID")
+            self.assertEqual([row[column] for row in rows[1:]], [egid, egid])
+        notes = {row[0]: row[1:] for row in workbook["Kategorien-Hinweise"].values}
+        self.assertIn("oneEgid_oneAddress_multipleGVBSIDs", notes["Grundregel"][0])
+        self.assertIn("oneEgid_multipleAddresses_multipleGVBSIDs", notes["Grundregel"][0])
 
     def test_result_sheet_preserves_import_and_inserts_search_address_and_assigned_egid(self):
         headers = [*app.REQUIRED, "Notiz", "Zweckbestimmung", "Zusätzliche Zahl"]
@@ -249,7 +326,9 @@ class OutputWorkbookTests(unittest.TestCase):
         ])
         workbook = self.create_output(headers, records, results)
         self.addCleanup(workbook.close)
-        self.assertEqual(workbook.sheetnames, ["Matching", "Zusammenfassung", "Kategorien-Hinweise", "Ergebnis"])
+        self.assertEqual(workbook.sheetnames, ["Matching", "Zusammenfassung", "Kategorien-Hinweise", "Ergebnis"] + [
+            app.CATEGORY_SHEET_TITLES.get(name, name) for name, _, _ in app.CATEGORIES
+        ])
         outcome = list(workbook["Ergebnis"].values)
         self.assertEqual(outcome[0], tuple(headers[:6] + ["Suchadresse", "EGID"] + headers[6:]))
         search_addresses = [
@@ -289,7 +368,7 @@ class OutputWorkbookTests(unittest.TestCase):
         )
         self.assertIn("Matching-Kategorie", matching_headers)
         self.assertIn("Matching-Zusammenfassung", matching_headers)
-        self.assertEqual(dict(list(workbook["Zusammenfassung"].values)[1:])["Gesamt"], 5)
+        self.assertEqual({row[0]: row[1] for row in list(workbook["Zusammenfassung"].values)[1:]}["Gesamt"], 5)
 
     def test_legacy_import_and_existing_egid_column_are_preserved(self):
         headers = ["Kontrollnummer", "Gebäude (Nr.)", "Strassennamen", "Nr.", "PLZ", "EGID", "GVBSID"]
@@ -312,7 +391,7 @@ class OutputWorkbookTests(unittest.TestCase):
         self.addCleanup(workbook.close)
         self.assertEqual(list(workbook["Ergebnis"].values), [tuple([*app.REQUIRED, "Suchadresse", "EGID"])])
         self.assertEqual(next(workbook["Matching"].values)[:4], ("Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"))
-        self.assertEqual(len(workbook.worksheets), 4)
+        self.assertEqual(len(workbook.worksheets), 14)
 
 
 if __name__ == "__main__":

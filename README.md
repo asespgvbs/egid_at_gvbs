@@ -40,8 +40,12 @@ Direkt nach `Postleitzahl` (bei
 einem Feld, beispielsweise `Teststrasse 30a, 0000`. Zwischen Hausnummer und
 Zusatz steht kein Leerzeichen; vor der Postleitzahl stehen ein Komma und ein
 Leerzeichen. Die Spalte `EGID` enthält nur die
-automatisch zugeordnete EGID aus `perfect_match` oder `super_match`; bei
-Prüffällen und fehlenden Treffern bleibt sie leer.
+automatisch zugeordnete EGID aus `perfect_match`, `super_match`,
+`oneEgid_oneAddress_multipleGVBSIDs` oder
+`oneEgid_multipleAddresses_multipleGVBSIDs`. Wenn mehrere GVBSIDs dieselbe
+EGID als einzigen Adresskandidaten haben, erhalten sie alle diese EGID,
+auch bei unterschiedlichen GVBS-Adressen. Bei Prüffällen und fehlenden
+Treffern bleibt die EGID leer.
 
 ## Rückfall beim Abbrechen
 
