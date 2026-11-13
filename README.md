@@ -44,8 +44,31 @@ automatisch zugeordnete EGID aus `perfect_match`, `super_match`,
 `oneEgid_oneAddress_multipleGVBSIDs` oder
 `oneEgid_multipleAddresses_multipleGVBSIDs`. Wenn mehrere GVBSIDs dieselbe
 EGID als einzigen Adresskandidaten haben, erhalten sie alle diese EGID,
-auch bei unterschiedlichen GVBS-Adressen. Bei Prüffällen und fehlenden
-Treffern bleibt die EGID leer.
+auch bei unterschiedlichen GVBS-Adressen, sofern mindestens eine EGRID
+vorhanden ist und kein Hausnummernzusatzkonflikt besteht. Bei Prüffällen
+und fehlenden Treffern bleibt die EGID leer.
+
+Die Kategorien werden sequentiell in dieser Reihenfolge geprüft. Die erste
+zutreffende Kategorie wird vergeben; jede Zeile erhält genau eine Kategorie.
+
+| Prüfung | Kategorie | Automatische EGID-Zuordnung |
+| --- | --- | --- |
+| 1 | `invalid_input` | Nein |
+| 2 | `no_match` | Nein |
+| 3 | `multiple_egid` | Nein |
+| 4 | `multiple_gvbsid_multiple_egid` | Nein |
+| 5 | `invalid_gwr_data` | Nein |
+| 6 | `review_address_suffix` | Nein |
+| 7 | `perfect_match` | Ja |
+| 8 | `super_match` | Ja |
+| 9 | `oneEgid_oneAddress_multipleGVBSIDs` | Ja |
+| 10 | `oneEgid_multipleAddresses_multipleGVBSIDs` | Ja |
+
+Fehlende EGRID und Hausnummernzusatzkonflikte verhindern damit auch bei
+mehreren GVBSIDs eine automatische Zuordnung. `perfect_match` und
+`super_match` setzen voraus, dass keine andere GVBSID dieselbe EGID als
+einzigen Adresskandidaten hat. Die bestehende Anzeigereihenfolge in der
+Excel-Zusammenfassung und den Kategorieblättern bleibt erhalten.
 
 ## Rückfall beim Abbrechen
 

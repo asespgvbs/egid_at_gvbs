@@ -46,7 +46,8 @@ CATEGORIES = [
         "EGID. Die Bedingungen für perfect_match sind jedoch "
         "nicht vollständig erfüllt, beispielsweise wegen "
         "mehrerer GWR-Adressen, weiterer EGIDs auf derselben "
-        "EGRID oder mehrerer EGRIDs. Es liegt kein erkannter "
+        "EGRID oder mehrerer EGRIDs. Mindestens eine EGRID ist "
+        "vorhanden. Es liegt kein erkannter "
         "Konflikt mit Hausnummernzusätzen vor.",
         "EGID automatisch zuordnen. Alle Abweichungen von "
         "perfect_match einzeln begründen.",
@@ -56,14 +57,17 @@ CATEGORIES = [
         "Mehrere unterschiedliche GVBSIDs besitzen dieselbe "
         "GVBS-Adresse und haben dieselbe EGID als einzigen "
         "Adresskandidaten. Es liegt keine zusätzliche "
-        "konkurrierende GVBS-Adresse vor.",
+        "konkurrierende GVBS-Adresse vor. Mindestens eine EGRID "
+        "ist vorhanden; kein erkannter Hausnummernzusatzkonflikt.",
         "EGID automatisch allen beteiligten GVBSIDs zuordnen.",
     ),
     (
         "oneEgid_multipleAddresses_multipleGVBSIDs",
         "Mehrere unterschiedliche GVBSIDs mit unterschiedlichen "
         "GVBS-Adressen haben dieselbe EGID als einzigen "
-        "Adresskandidaten. Mischfälle gehören ebenfalls hierher.",
+        "Adresskandidaten. Mischfälle gehören ebenfalls hierher. "
+        "Mindestens eine EGRID ist vorhanden; kein erkannter "
+        "Hausnummernzusatzkonflikt.",
         "EGID automatisch allen beteiligten GVBSIDs zuordnen.",
     ),
     (
@@ -85,8 +89,8 @@ CATEGORIES = [
     ),
     (
         "multiple_egid",
-        "Eine GVBSID besitzt mehrere direkte EGID-Kandidaten "
-        "an ihrer GVBS-Adresse.",
+        "Genau eine GVBSID an der GVBS-Adresse besitzt mehrere "
+        "direkte EGID-Kandidaten an dieser Adresse.",
         "Keine automatische Zuordnung.",
     ),
     (
@@ -734,41 +738,33 @@ def match(
                 gvbs_by_address=gvbs_by_address,
             )
         # ----------------------------------------------------
-        # KATEGORIE BESTIMMEN
+        # SEQUENTIELLE PRÜFUNG: 1–6 OFFEN, 7–10 AUTOMATISCH
         # ----------------------------------------------------
         if not ok:
             category = "invalid_input"
         elif not candidates:
             category = "no_match"
+        elif len(candidates) > 1 and n_gvbs_at_address == 1:
+            category = "multiple_egid"
         elif len(candidates) > 1:
-            if n_gvbs_at_address > 1:
-                category = "multiple_gvbsid_multiple_egid"
-            else:
-                category = "multiple_egid"
-        elif (
-            n_gvbs_for_egid > 1
-            and n_gvbs_addresses_for_egid > 1
-        ):
-            category = "oneEgid_multipleAddresses_multipleGVBSIDs"
-        elif n_gvbs_for_egid > 1:
-            category = (
-                "oneEgid_oneAddress_multipleGVBSIDs"
-            )
+            category = "multiple_gvbsid_multiple_egid"
         elif not grids:
             category = "invalid_gwr_data"
-        # ----------------------------------------------------
-        # NEUE KATEGORIE VOR PERFECT UND SUPER MATCH
-        # ----------------------------------------------------
         elif suffix_conflicts:
             category = "review_address_suffix"
         elif (
-            n_gwr_addresses == 1
+            n_gvbs_for_egid == 1
+            and n_gwr_addresses == 1
             and len(grids) == 1
             and len(parcel_egids) == 1
         ):
             category = "perfect_match"
-        else:
+        elif n_gvbs_for_egid == 1:
             category = "super_match"
+        elif n_gvbs_addresses_for_egid == 1:
+            category = "oneEgid_oneAddress_multipleGVBSIDs"
+        else:
+            category = "oneEgid_multipleAddresses_multipleGVBSIDs"
         # ----------------------------------------------------
         # AUTOMATISCHE EGID-ZUORDNUNG
         # ----------------------------------------------------
@@ -985,7 +981,7 @@ def save_excel(path, headers, results, records):
         "Die automatische Zuordnung erfolgt ausschliesslich "
         "für folgende Kategorien: "
         + ", ".join(name for name, _, _ in CATEGORIES if name in AUTO_CATEGORIES)
-        + ".",
+        + ". Die Prüfkategorien werden vor jeder automatischen Zuordnung geprüft.",
         "",
     ])
     notes.append([
@@ -1004,7 +1000,8 @@ def save_excel(path, headers, results, records):
         "GVBS-Adressen",
         "Mehrere unterschiedliche GVBSIDs, die dieselbe "
         "EGID als einzigen Adresskandidaten haben, "
-        "werden dieser EGID automatisch zugeordnet. "
+        "werden dieser EGID automatisch zugeordnet, sofern mindestens "
+        "eine EGRID vorhanden ist und kein Hausnummernzusatzkonflikt besteht. "
         "Dies gilt bei gleicher und bei unterschiedlichen GVBS-Adressen.",
         "",
     ])

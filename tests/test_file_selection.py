@@ -206,7 +206,7 @@ class InputColumnTests(unittest.TestCase):
             ])
 
 
-def synthetic_assignment_case(numbers, candidates_by_number):
+def synthetic_assignment_case(numbers, candidates_by_number, *, missing_grid=False, suffix_conflict=False):
     """Vollständig synthetische Zuordnung ohne Datei- oder Datenbankzugriff."""
     records = [{
         "Kontrollnummer": f"SYNTHETIC-{index}",
@@ -228,6 +228,17 @@ def synthetic_assignment_case(numbers, candidates_by_number):
             egid_addresses.setdefault(egid, set()).add(key)
             egid_grids[egid] = {grid}
             grid_egids[grid] = {egid}
+    if missing_grid:
+        egid_grids.clear()
+        grid_egids.clear()
+    if suffix_conflict:
+        suffix_egid = 900000099
+        suffix_key = app.address("Synthetische Teststrasse", "10a", "0000")
+        addr_egids[suffix_key] = {suffix_egid}
+        egid_addresses[suffix_egid] = {suffix_key}
+        egid_grids[suffix_egid] = set(egid_grids[900000001])
+        for grid in egid_grids[suffix_egid]:
+            grid_egids[grid].add(suffix_egid)
     return records, app.match(records, addr_egids, egid_addresses, egid_grids, grid_egids)
 
 
@@ -256,6 +267,78 @@ class MultipleGvbsAssignmentTests(unittest.TestCase):
                 self.assertTrue(all(row["Matching-Kategorie"] == category for row in results))
                 self.assertTrue(all(row["EGID"] is None for row in results))
                 self.assertTrue(all(row["Automatische Zuordnung"] == "Nein" for row in results))
+
+
+class CategoryPriorityTests(unittest.TestCase):
+    def test_all_ten_categories_and_only_last_four_assign_egid(self):
+        cases = [
+            ([""], {}, {}, "invalid_input", False),
+            (["99"], {}, {}, "no_match", False),
+            (["10"], {"10": {900000001, 900000002}}, {}, "multiple_egid", False),
+            (["10", "10"], {"10": {900000001, 900000002}}, {}, "multiple_gvbsid_multiple_egid", False),
+            (["10"], {"10": {900000001}}, {"missing_grid": True}, "invalid_gwr_data", False),
+            (["10"], {"10": {900000001}}, {"suffix_conflict": True}, "review_address_suffix", False),
+            (["10"], {"10": {900000001}}, {}, "perfect_match", True),
+            (["10"], {"10": {900000001}, "12": {900000001}}, {}, "super_match", True),
+            (["10", "10"], {"10": {900000001}}, {}, "oneEgid_oneAddress_multipleGVBSIDs", True),
+            (["10", "12"], {"10": {900000001}, "12": {900000001}}, {}, "oneEgid_multipleAddresses_multipleGVBSIDs", True),
+        ]
+        for numbers, candidates, options, category, automatic in cases:
+            with self.subTest(category=category):
+                _, results = synthetic_assignment_case(numbers, candidates, **options)
+                self.assertEqual(len(results), len(numbers))
+                for result in results:
+                    self.assertEqual(result["Matching-Kategorie"], category)
+                    self.assertEqual(result["EGID"], 900000001 if automatic else None)
+                    self.assertEqual(result["Automatische Zuordnung"], "Ja" if automatic else "Nein")
+        self.assertEqual(app.AUTO_CATEGORIES, {case[3] for case in cases if case[4]})
+        self.assertEqual({case[3] for case in cases}, {name for name, _, _ in app.CATEGORIES})
+
+    def test_missing_grid_precedes_both_multiple_gvbs_categories(self):
+        for numbers in (["10", "10"], ["10", "12"], ["10", "10", "12"]):
+            with self.subTest(numbers=numbers):
+                _, results = synthetic_assignment_case(
+                    numbers, {"10": {900000001}, "12": {900000001}}, missing_grid=True,
+                )
+                self.assertTrue(all(row["Matching-Kategorie"] == "invalid_gwr_data" for row in results))
+                self.assertTrue(all(row["EGID"] is None for row in results))
+                self.assertTrue(all(row["Automatische Zuordnung"] == "Nein" for row in results))
+
+    def test_suffix_conflict_precedes_both_multiple_gvbs_categories_per_row(self):
+        for numbers in (["10", "10"], ["10", "12"], ["10", "10", "12"]):
+            with self.subTest(numbers=numbers):
+                _, results = synthetic_assignment_case(
+                    numbers, {"10": {900000001}, "12": {900000001}}, suffix_conflict=True,
+                )
+                for number, result in zip(numbers, results, strict=True):
+                    if number == "10":
+                        self.assertEqual(result["Matching-Kategorie"], "review_address_suffix")
+                        self.assertIsNone(result["EGID"])
+                        self.assertEqual(result["Automatische Zuordnung"], "Nein")
+                        self.assertEqual(result["Anzahl EGID mit Hausnummernzusatz"], 1)
+                    else:
+                        self.assertEqual(result["Matching-Kategorie"], "oneEgid_multipleAddresses_multipleGVBSIDs")
+                        self.assertEqual(result["EGID"], 900000001)
+                        self.assertEqual(result["Automatische Zuordnung"], "Ja")
+
+    def test_ambiguous_candidates_precede_missing_grid(self):
+        for numbers, expected in ((["10"], "multiple_egid"), (["10", "10"], "multiple_gvbsid_multiple_egid")):
+            with self.subTest(numbers=numbers):
+                _, results = synthetic_assignment_case(
+                    numbers, {"10": {900000001, 900000002}}, missing_grid=True,
+                )
+                self.assertTrue(all(row["Matching-Kategorie"] == expected for row in results))
+                self.assertTrue(all(row["EGID"] is None for row in results))
+
+    def test_suffix_address_with_own_gvbsid_allows_automatic_assignment(self):
+        _, results = synthetic_assignment_case(
+            ["10", "10", "10a"], {"10": {900000001}, "10a": {900000099}}, suffix_conflict=True,
+        )
+        self.assertEqual([row["Matching-Kategorie"] for row in results], [
+            "oneEgid_oneAddress_multipleGVBSIDs", "oneEgid_oneAddress_multipleGVBSIDs", "super_match",
+        ])
+        self.assertEqual([row["EGID"] for row in results], [900000001, 900000001, 900000099])
+        self.assertTrue(all(row["Automatische Zuordnung"] == "Ja" for row in results))
 
 
 class OutputWorkbookTests(unittest.TestCase):
@@ -297,6 +380,31 @@ class OutputWorkbookTests(unittest.TestCase):
         notes = {row[0]: row[1:] for row in workbook["Kategorien-Hinweise"].values}
         self.assertIn("oneEgid_oneAddress_multipleGVBSIDs", notes["Grundregel"][0])
         self.assertIn("oneEgid_multipleAddresses_multipleGVBSIDs", notes["Grundregel"][0])
+
+    def test_priority_checks_reach_output_sheets_and_totals(self):
+        for options, category, assigned_count in (
+            ({"missing_grid": True}, "invalid_gwr_data", 0),
+            ({"suffix_conflict": True}, "review_address_suffix", 2),
+        ):
+            with self.subTest(category=category):
+                records, results = synthetic_assignment_case(
+                    ["10", "10", "20", "22", "99"],
+                    {"10": {900000001}, "20": {900000002}, "22": {900000002}},
+                    **options,
+                )
+                workbook = self.create_output(list(app.REQUIRED), records, results)
+                self.addCleanup(workbook.close)
+                for sheet_name in ("Matching", "Ergebnis", category):
+                    rows = list(workbook[sheet_name].values)
+                    column = rows[0].index("EGID")
+                    self.assertIsNone(rows[1][column])
+                    self.assertIsNone(rows[2][column])
+                overview = {row[0]: row[1:] for row in list(workbook["Zusammenfassung"].values)[1:]}
+                self.assertEqual(overview["Automatisch zugeordnet"], (assigned_count, assigned_count / 5, None))
+                self.assertEqual(overview["Nicht automatisch zugeordnet"], (5 - assigned_count, (5 - assigned_count) / 5, None))
+                expected_review_count = 4 if category == "invalid_gwr_data" else 2
+                self.assertEqual(overview[category][0], expected_review_count)
+                self.assertEqual(overview[category][1], expected_review_count / 5)
 
     def test_result_sheet_preserves_import_and_inserts_search_address_and_assigned_egid(self):
         headers = [*app.REQUIRED, "Notiz", "Zweckbestimmung", "Zusätzliche Zahl"]
