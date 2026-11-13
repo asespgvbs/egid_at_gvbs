@@ -64,7 +64,7 @@ CATEGORIES = [
         "mehrere EGIDs umfasst.",
     ),
     (
-        "multiple_gvbsid_same_address_one_egid",
+        "oneEgid_oneAddress_multipleGVBSIDs",
         "Mehrere unterschiedliche GVBSIDs besitzen dieselbe "
         "GVBS-Adresse und haben dieselbe EGID als einzigen "
         "Adresskandidaten. Es liegt keine zusätzliche "
@@ -72,7 +72,7 @@ CATEGORIES = [
         "Keine automatische Zuordnung. Mehrfacherfassung prüfen.",
     ),
     (
-        "multiple_gvbsid_one_egid",
+        "oneEgid_multipleAddresses_multipleGVBSIDs",
         "Mehrere unterschiedliche GVBSIDs mit unterschiedlichen "
         "GVBS-Adressen haben dieselbe EGID als einzigen "
         "Adresskandidaten. Mischfälle gehören ebenfalls hierher.",
@@ -115,8 +115,8 @@ CATEGORY_COLORS = {
     "perfect_match": "E2F0D9",
     "super_match": "DDEBF7",
     "review_address_suffix": "FFF2CC",
-    "multiple_gvbsid_same_address_one_egid": "FCE4D6",
-    "multiple_gvbsid_one_egid": "FCE4D6",
+    "oneEgid_oneAddress_multipleGVBSIDs": "FCE4D6",
+    "oneEgid_multipleAddresses_multipleGVBSIDs": "E4DFEC",
 }
 # ============================================================
 # HILFSFUNKTIONEN
@@ -549,12 +549,12 @@ def create_summary(
         )
 
     if category in (
-        "multiple_gvbsid_same_address_one_egid",
-        "multiple_gvbsid_one_egid",
+        "oneEgid_oneAddress_multipleGVBSIDs",
+        "oneEgid_multipleAddresses_multipleGVBSIDs",
     ):
         related = sorted(gvbs_by_egid.get(candidates[0], set()), key=gvbsid_text)
         ids = list_text(gvbsid_text(item) for item in related)
-        if category == "multiple_gvbsid_same_address_one_egid":
+        if category == "oneEgid_oneAddress_multipleGVBSIDs":
             relation = f"Mehrere GVBSIDs mit gleicher Adresse: {ids}."
         else:
             entries = []
@@ -759,10 +759,10 @@ def match(
             n_gvbs_for_egid > 1
             and n_gvbs_addresses_for_egid > 1
         ):
-            category = "multiple_gvbsid_one_egid"
+            category = "oneEgid_multipleAddresses_multipleGVBSIDs"
         elif n_gvbs_for_egid > 1:
             category = (
-                "multiple_gvbsid_same_address_one_egid"
+                "oneEgid_oneAddress_multipleGVBSIDs"
             )
         elif not grids:
             category = "invalid_gwr_data"
