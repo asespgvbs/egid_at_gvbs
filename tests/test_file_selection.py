@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "main.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "gvbsid_matching.py"
 SPEC = importlib.util.spec_from_file_location("egid_match_main", SCRIPT)
 app = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(app)
