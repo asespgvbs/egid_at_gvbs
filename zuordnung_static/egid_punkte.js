@@ -2,12 +2,12 @@
 
 // Reines Leaflet: GeoJSON bleibt [Longitude, Latitude], Leaflet übernimmt LatLng.
 globalThis.ReviewEgidPoints = {
-  tooltip(egid, addresses = []) {
-    const tooltip = document.createElement("span");
-    tooltip.className = "egid-tooltip";
+  label(egid, addresses = []) {
+    const label = document.createElement("span");
+    label.className = "egid-label";
     const values = [...new Set(addresses.map(value => String(value).replace(/\s+/g, " ").trim()).filter(Boolean))];
-    tooltip.textContent = `EGID ${egid}\nGWR: ${values.join("; ") || "Adresse nicht verfügbar"}`;
-    return tooltip;
+    label.textContent = `${egid} - ${values.join("; ") || "GWR-Adresse nicht verfügbar"}`;
+    return label;
   },
 
   style(gstat, selected, zoom, needsReview = false) {
@@ -27,7 +27,6 @@ globalThis.ReviewEgidPoints = {
         marker.reviewProperties = properties;
         if (!index.has(egid)) index.set(egid, []);
         index.get(egid).push(marker);
-        marker.bindTooltip(this.tooltip(egid, properties.addresses));
         marker.on("click", () => onSelect(egid));
         if (onPosition) onPosition(egid, latlng);
         return marker;

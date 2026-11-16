@@ -98,10 +98,12 @@ GWR-Quelle. Ein lokaler GWR-Dateiimport wird nicht angeboten. Alte gespeicherte
 GWR-Snapshots werden nicht mehr genutzt und nicht automatisch gelöscht;
 manuelle Entscheidungen und Excel-Originalwerte bleiben erhalten.
 
-Die GWR-Adressen für die EGID-Tooltips liest die Anwendung direkt über die
+Die GWR-Adressen für Tabelle und Kartenbeschriftung liest die Anwendung direkt über die
 bestehende `entrance.EGID`-Beziehung aus der GWR-Datenbank des Matchings.
 Strassenname, Hausnummer mit Zusatz und Postleitzahl werden unverändert
-übernommen und als `GWR:` angezeigt. Die Quelle wird ausschliesslich
+übernommen. Links steht die GVBSID mit `(GVBSID)` und darunter `GVBS-Info:`
+mit Adresse und Zweckbestimmung als Aufzählung. Die EGID-Spalten tragen
+`(GWR)` und zeigen darunter die zugehörigen GWR-Adressen. Die Quelle wird ausschliesslich
 schreibgeschützt geöffnet; es gibt keine neue Adresszuordnung und keinen
 Adressimport. Ein anderer GWR-Pfad lässt sich mit `--gwr-db` beim Start
 angeben. Fehlt eine Adresse, bleibt sie ausdrücklich nicht verfügbar.
@@ -113,8 +115,10 @@ bleiben auch bei Ausfall der Parzellenquelle darstellbar. Die EGID-Abfrage
 setzt keinen Parzellentreffer voraus.
 
 Leaflet zeichnet CircleMarker mit gemeinsamem Canvas-Renderer, Farben nach
-Gebäudestatus, Punktgrössen nach Zoom und EGID-Tooltip. Ein Klick hebt die EGID
-hervor. Die Anzeige erzeugt keine automatische Zuordnung.
+Gebäudestatus und Punktgrössen nach Zoom. Die Kartenbeschriftung lautet
+`EGID - GWR-Adresse`; Hoverinfos entfallen. Ein Klick hebt die EGID hervor
+und zeigt Adresse und GSTAT, ohne den Kartenausschnitt zu verändern.
+Die Anzeige erzeugt keine automatische Zuordnung.
 
 Die obere Kartenleiste mit Parzellenauswahl, Neuladen, Statusauswahl und
 Punktauswahl entfällt. Die Karte zeigt ausschliesslich bestehende Gebäude
@@ -126,16 +130,18 @@ Bei bekannter EGRID wird diese exakt abgefragt. Sonst sind Sektion und
 Parzellennummer gemeinsam moeglich. Kein Kartenklick speichert eine manuelle
 EGID-Zuordnung.
 
-Polygon, MultiPolygon und Innenringe werden geprueft. Die aktive Parzelle bleibt
-hell, ihr Aussenbereich wird abgedunkelt. Mehrere EGID werden nach Kennung
+Polygon, MultiPolygon und Innenringe werden geprueft. Die geladenen Parzellen bleiben
+hell, ihr Aussenbereich wird abgedunkelt. Der Ausschnitt zeigt die Parzellen
+mit etwas Rand, bis maximal Zoomstufe 19; grosse Grundstücke werden passend
+herausgezoomt. Grenze und Abdunkelung bleiben von EGID-Beschriftungen unabhängig.
+Mehrere EGID werden nach Kennung
 zusammengefuehrt, ohne unterschiedliche bekannte Positionen zu verlieren.
 Eine raeumlich abgeleitete Beziehung wird ausdruecklich gekennzeichnet;
 Grenzlagen und widerspruechliche Geometrien bleiben klaerungsbeduerftig.
 
-Wenn vorhanden, transformiert `pyproj` LV95 mit `always_xy=True`. In der
-bestehenden Umgebung fehlt diese optionale Bibliothek. Ohne Installation
-verwendet die Punktanzeige deshalb die dokumentierte Swisstopo-Näherung.
-Tooltip und EGID-Details kennzeichnen dies. Diese Punkte dienen ausschliesslich
+Wenn vorhanden, transformiert `pyproj` LV95 mit `always_xy=True`. Ohne diese
+optionale Bibliothek verwendet die Punktanzeige die dokumentierte Swisstopo-Näherung.
+Die Methode bleibt intern im Geodatenkontext erhalten. Diese Punkte dienen ausschliesslich
 der Anzeige, nicht einer Grenzprüfung oder Vermessung. Zusätzliche auswählbare
 EGID beruhen auf den importierten EGRID-Beziehungen, nicht auf Näherungspunkten.
 Fehlende oder ungültige Koordinaten werden gemeldet und nicht erfunden.

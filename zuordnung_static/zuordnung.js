@@ -248,28 +248,31 @@ const recordInfo = createRecordInfo();
 function renderCase() {
   recordInfo.hide();
   $("case-content").hidden = false; $("empty-note").hidden = true;
-  const selected = current.records.find(record => record.gvbsid === current.selected);
-  $("case-title").textContent = `${current.selected} · GVBS: ${String(selected?.address || "–").replace(/\s+/g, " ").trim()}`;
+  $("case-title").textContent = `${current.selected} (GVBSID)`;
   $("egrids").textContent = current.egrids.join(", ") || "Keine verlässliche EGRID vorhanden";
   const position = queue.findIndex(record => record.gvbsid === current.selected);
   $("queue-position").textContent = position < 0 ? "Über Suche geöffnet" : `${position + 1} / ${queue.length}`;
   if (position >= 0) $("queue").value = current.selected;
   const table = node("table"), head = node("thead"), headings = node("tr");
-  headings.append(node("th", "GVBSID / GVBS-Adresse"));
+  headings.append(node("th", "GVBS"));
   for (const egid of current.egids) {
-    const th = node("th"), button = node("button", egid, "egid-button");
+    const th = node("th", undefined, "gwr-column"), button = node("button", `${egid} (GWR)`, "egid-button");
     button.type = "button"; button.dataset.egid = egid;
-    button.addEventListener("click", () => selectEgid(egid)); th.append(button); headings.append(th);
+    button.addEventListener("click", () => selectEgid(egid));
+    const addresses = [...new Set((current.geo?.buildings || []).filter(building => building.egid === egid).flatMap(gwrAddresses))];
+    const addressText = addresses.join("; ") || (current.geo ? "GWR-Adresse nicht verfügbar" : "GWR-Adresse wird geladen …");
+    th.append(button, node("span", addressText, "gwr-table-address")); headings.append(th);
   }
   head.append(headings); table.append(head);
   const body = node("tbody");
   for (const record of current.records) {
     const tr = node("tr"); if (["Abgeschlossen", "Keine Zuordnung möglich"].includes(record.status)) tr.className = "row-finished";
-    const identity = node("td"), trigger = node("button", record.gvbsid, "gvbsid-info");
+    const identity = node("td"), trigger = node("button", `${record.gvbsid} (GVBSID)`, "gvbsid-info");
     trigger.type = "button"; recordInfo.attach(trigger, record);
-    const heading = node("div", undefined, "record-heading");
-    heading.append(trigger, node("span", `GVBS: ${String(record.address || "–").replace(/\s+/g, " ").trim()}`, "gvbs-address"));
-    identity.append(heading, node("span", record.purpose || "Zweckbestimmung fehlt", "record-purpose"));
+    const info = node("ul", undefined, "gvbs-info-list");
+    info.append(node("li", `Adresse: ${String(record.address || "–").replace(/\s+/g, " ").trim()}`),
+      node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`));
+    identity.append(trigger, node("strong", "GVBS-Info:", "gvbs-info-title"), info);
     tr.append(identity);
     for (const egid of current.egids) {
       const td = node("td"), checkbox = document.createElement("input");
@@ -322,6 +325,9 @@ function ensureMap() {
   if (!window.L) { message("Leaflet konnte nicht geladen werden. Für die Karte ist eine Internetverbindung erforderlich; die Zuordnung bleibt verfügbar.", true); return false; }
   $("map").replaceChildren();
   map = L.map("map", {maxZoom: 22}).setView([47.56, 7.59], DEFAULT_MAP_ZOOM);
+  map.createPane("parcel-mask").style.zIndex = 350;
+  map.getPane("parcel-mask").style.pointerEvents = "none";
+  map.createPane("parcel-boundaries").style.zIndex = 440;
   map.createPane("egid-points").style.zIndex = 450;
   egidRenderer = L.canvas({padding: .5, pane: "egid-points"});
   map.on("zoomend", () => ReviewEgidPoints.update(markerIndex, selectedEgid, map.getZoom()));
@@ -344,33 +350,42 @@ function clearMap() {
   $("egid-details").textContent = "Keine EGID ausgewählt.";
 }
 
-function maskParcel(parcel) {
+function maskParcels(parcels) {
   mapLayers.mask.clearLayers();
-  if (!parcel) return;
-  const polygons = parcel.geometry.type === "Polygon" ? [parcel.geometry.coordinates] : parcel.geometry.coordinates;
+  if (!parcels.length) return;
+  const polygons = parcels.flatMap(parcel => parcel.geometry.type === "Polygon" ? [parcel.geometry.coordinates] : parcel.geometry.coordinates);
   const outer = [[-85, -180], [-85, 180], [85, 180], [85, -180]];
   const latlng = ring => ring.map(point => [point[1], point[0]]);
-  const style = {stroke: false, fillColor: "#4d565b", fillOpacity: .52, interactive: false};
-  L.polygon([outer, ...polygons.map(polygon => latlng(polygon[0]))], {...style, fillRule: "evenodd"}).addTo(mapLayers.mask);
-  for (const polygon of polygons) for (const hole of polygon.slice(1)) L.polygon(latlng(hole), style).addTo(mapLayers.mask);
+  const style = {pane: "parcel-mask", stroke: false, fillColor: "#4d565b", fillOpacity: .52, interactive: false};
+  L.polygon([outer, ...polygons.flatMap(polygon => polygon.map(latlng))], {...style, fillRule: "evenodd"}).addTo(mapLayers.mask);
 }
 
 function focusParcel(egrid) {
   if (!map || !current?.geo) return;
   const parcel = current.geo.parcels.find(value => (value.key || value.egrid) === egrid);
-  maskParcel(parcel);
+  maskParcels(parcel ? [parcel] : []);
   for (const layer of mapLayers.parcels.getLayers()) layer.setStyle({color: layer.options.reviewEgrid === egrid ? "#cf6a19" : "#3c7d86", weight: layer.options.reviewEgrid === egrid ? 4 : 2});
-  if (parcel) map.setView(L.geoJSON(parcel.geometry).getBounds().getCenter(), DEFAULT_MAP_ZOOM);
+  if (parcel) map.fitBounds(L.geoJSON(parcel.geometry).getBounds(), {maxZoom: DEFAULT_MAP_ZOOM, padding: [28, 28]});
 }
 
 function renderGeo() {
   clearMap();
   if (!ensureMap() || !current?.geo) return;
+  map.invalidateSize({pan: false});
   const geo = current.geo;
   const allBounds = L.latLngBounds();
   for (const parcel of geo.parcels) {
-    const layer = L.geoJSON(parcel.geometry, {style: {color: "#3c7d86", weight: 2, fillOpacity: .05}}).addTo(mapLayers.parcels);
+    const layer = L.geoJSON(parcel.geometry, {pane: "parcel-boundaries", style: {color: "#cf6a19", weight: 3, opacity: 1, fill: false}}).addTo(mapLayers.parcels);
     layer.options.reviewEgrid = parcel.key || parcel.egrid; allBounds.extend(layer.getBounds());
+  }
+  // Grundstück und Kartenausschnitt unabhängig von EGID-Beschriftungen zeichnen.
+  if (geo.parcels.length === 1) focusParcel(geo.parcels[0].key || geo.parcels[0].egrid);
+  else if (geo.parcels.length > 1) {
+    maskParcels(geo.parcels);
+    map.fitBounds(allBounds, {maxZoom: DEFAULT_MAP_ZOOM, padding: [28, 28]});
+  } else {
+    const reason = geo.sources?.parcels?.message;
+    $("egid-details").textContent = `Keine Parzellengrenze verfügbar.${reason ? " " + reason : ""}`;
   }
   const pointFeatures = [];
   const buildings = geo.buildings.filter(building => building.gstat === "1004");
@@ -386,7 +401,6 @@ function renderGeo() {
         pointFeatures.push({type: "Feature", geometry, properties: {egid, gstat: building.gstat, needs_review: building.needs_review, addresses}});
       } else if (!isPoint) {
         const layer = L.geoJSON(geometry, {style: {color: "#547d8a", weight: 2, fillColor: "#75a3ac", fillOpacity: .35}}).addTo(mapLayers.buildings);
-        layer.bindTooltip(ReviewEgidPoints.tooltip(egid, addresses));
         layer.on("click", () => selectEgid(egid));
         allBounds.extend(layer.getBounds());
         if (!geometryIndex.has(egid)) geometryIndex.set(egid, []); geometryIndex.get(egid).push(layer);
@@ -401,15 +415,13 @@ function renderGeo() {
   ReviewEgidPoints.layer(L, features, {renderer: egidRenderer, map, index: markerIndex, selected: selectedEgid, onSelect: selectEgid,
     onPosition: (egid, position) => {
       allBounds.extend(position);
-      const label = L.marker(position, {icon: L.divIcon({className: "", html: `<span class="egid-label">${egid}</span>`, iconAnchor: [-8, 8]})}).addTo(mapLayers.labels);
-      label.bindTooltip(ReviewEgidPoints.tooltip(egid, gwrAddresses(buildingIndex.get(egid))));
+      const content = ReviewEgidPoints.label(egid, gwrAddresses(buildingIndex.get(egid)));
+      const label = L.marker(position, {icon: L.divIcon({className: "", html: content, iconAnchor: [-8, 8]})}).addTo(mapLayers.labels);
       label.on("click", () => selectEgid(egid));
     }
   }).addTo(mapLayers.markers);
-  if (geo.parcels.length === 1) focusParcel(geo.parcels[0].key || geo.parcels[0].egrid);
-  else if (allBounds.isValid()) map.setView(allBounds.getCenter(), DEFAULT_MAP_ZOOM);
+  if (!geo.parcels.length && allBounds.isValid()) map.setView(allBounds.getCenter(), DEFAULT_MAP_ZOOM);
   if (selectedEgid) selectEgid(selectedEgid);
-  map.invalidateSize();
 }
 
 function selectEgid(egid) {
@@ -421,7 +433,8 @@ function selectEgid(egid) {
   const addresses = [...new Set(buildings.flatMap(gwrAddresses))];
   const addressStatus = current?.geo?.gwr_address_status;
   const addressText = addresses.length ? `GWR: ${addresses.join("; ")}` : `GWR: ${addressStatus?.code === "unreachable" ? addressStatus.message : "Keine Adresse zur EGID im GWR gefunden."}`;
-  $("egid-details").textContent = `EGID ${egid}\n${addressText}\n${[...new Set(buildings.map(value => `${value.relation} · GSTAT ${value.gstat || "unbekannt"}${value.needs_review ? " · klärungsbedürftig" : ""}${value.geometry_note ? "\n" + value.geometry_note : ""}${value.source_updated ? "\nQuellen-Exportdatum: " + value.source_updated : ""}`))].join("\n")}${buildings.some(value => !value.gstat_verified) ? "\nBestandsstatus GSTAT ungeprüft." : ""}`;
+  const statuses = [...new Set(buildings.map(value => value.gstat).filter(Boolean))];
+  $("egid-details").textContent = `EGID ${egid}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}`;
 }
 
 async function loadGeo() {

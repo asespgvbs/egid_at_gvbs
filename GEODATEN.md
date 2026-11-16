@@ -50,6 +50,13 @@ Mutation vollständig erfasst wäre. Polygon und MultiPolygon einschliesslich
 Innenringen werden verarbeitet. Offene, selbstüberschneidende oder überlagerte
 Geometrien werden nicht stillschweigend verwendet.
 
+Parzellengrenzen und Aussenabdunkelung werden vor den EGID-Beschriftungen
+gezeichnet und liegen in getrennten Kartenebenen. Der Kartenausschnitt zeigt
+alle geladenen Parzellen mit einem Rand, bis maximal Zoomstufe 19. So bleiben
+auch bei grossen Parzellen Grenze und Abdunkelung sichtbar. Mehrere Parzellen
+und Innenringe werden in der Maske berücksichtigt. Fehlt eine Quellgeometrie,
+steht der Grund im vorhandenen Detailfeld unter der Karte.
+
 ### EGID-Punkte aus dem öffentlichen GWR
 
 Die Gebäudepunkte kommen ausschliesslich aus der öffentlichen GWR-Publikation
@@ -73,8 +80,9 @@ unverändert übernommen. Mehrere GWR-Eingangsadressen einer EGID bleiben erhalt
 Es werden keine Adressen aus GVBS-Adressen, Nachbarschaft oder Importtexten
 abgeleitet und keine bestehenden Beziehungen oder Datenbestände verändert.
 
-Die EGID-Tooltips zeigen `GWR:` mit diesen Originaladressen. Bei fehlenden
-Adressen gibt es keinen Ersatz durch eine andere EGID. Eine nicht lesbare
+Die Tabelle zeigt `EGID (GWR)` und darunter die Original-GWR-Adresse. Die
+Karte beschriftet die Punkte dauerhaft mit `EGID - Adresse`; EGID-Hoverinfos
+entfallen. Bei fehlenden Adressen gibt es keinen Ersatz durch eine andere EGID. Eine nicht lesbare
 GWR-Adressquelle lässt die Kartenpositionen verfügbar und wird in den
 EGID-Details gemeldet. Ein lokaler Import oder Snapshot wird nicht angelegt.
 
@@ -84,7 +92,9 @@ Installation startbar: Die Anzeige nutzt Abschnitt 2 der offiziellen
 [Swisstopo-Näherungsformeln, Dezember 2016](https://www.swisstopo.admin.ch/dam/en/sd-web/KLRCX9XIdXDu/ch1903wgs84-EN.pdf).
 Swisstopo nennt Winkelgenauigkeiten von besser als 0.12 Bogensekunden in Länge
 und 0.08 Bogensekunden in Breite innerhalb der Schweiz. Diese Näherung dient
-ausschliesslich der Kartendarstellung und wird in den EGID-Details benannt.
+ausschliesslich der Kartendarstellung; die Methode bleibt im Geodatenkontext
+enthalten. In den Klickdetails werden Beziehungstext, Näherungshinweis und
+Quellen-Exportdatum nicht angezeigt; Adresse und GSTAT bleiben sichtbar.
 Sie wird niemals zum räumlichen Freischalten einer zusätzlichen EGID oder für
 Grenzprüfungen verwendet. Der allgemeine Geometrieprüfer behält seine strikte
 Transformationsanforderung.
@@ -95,7 +105,7 @@ Beide Quellen unterliegen der unten beschriebenen Cache-Altersprüfung.
 
 `zuordnung_static/egid_punkte.js` verwendet Leaflet-GeoJSON mit `pointToLayer`,
 einem gemeinsamen Canvas-Renderer, GSTAT-Farben, zoomabhängigen Radien und
-EGID-Tooltip. Der EGID-Canvas liegt über der Parzellenabdunkelung.
+dauerhafter EGID-/Adressbeschriftung. Der EGID-Canvas liegt über der Parzellenabdunkelung.
 
 ### Öffentliche Gebäudequelle
 

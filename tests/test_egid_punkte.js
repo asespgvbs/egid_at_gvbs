@@ -14,7 +14,7 @@ const renderer = {syntheticCanvas: true}, index = new Map(), selected = [];
 const positions = [];
 const L = {
   circleMarker(position, options) {
-    return {position, options, events: {}, bindTooltip(value) {this.tooltip = value;},
+    return {position, options, events: {}, bindTooltip() {throw new Error("EGID-Punkte dürfen keine Hoverinfo erhalten");},
       on(event, callback) {this.events[event] = callback;}, setStyle(value) {Object.assign(this.options, value);}};
   },
   geoJSON(collection, options) {
@@ -33,10 +33,11 @@ check(layer.markers.length === 3, "Jede EGID muss als CircleMarker erscheinen");
 check(layer.markers.every(marker => marker.options.renderer === renderer), "Alle EGID teilen denselben Canvas-Renderer");
 check(positions[0].lng === 7.5 && positions[0].lat === 47.5, "GeoJSON-Achsen bleiben Longitude/Latitude");
 check(new Set(layer.markers.map(marker => marker.options.fillColor)).size === 3, "GSTAT hat unterschiedliche Farben");
-check(layer.markers[0].tooltip.textContent.includes("EGID 101"), "EGID im Tooltip");
-check(layer.markers[0].tooltip.textContent.includes("GWR: Synthetischer Testweg 10a, 0000"), "Vorhandene GWR-Adresse im Tooltip");
-check(!layer.markers[0].tooltip.textContent.includes("Swisstopo"), "Kein Näherungshinweis im Adress-Tooltip");
-check(layer.markers[1].tooltip.textContent.includes("GWR: Adresse nicht verfügbar"), "Keine erfundene Adresse bei fehlender GWR-Adresse");
+const label = points.label("101", features.features[0].properties.addresses);
+check(label.textContent === "101 - Synthetischer Testweg 10a, 0000", "EGID und Original-GWR-Adresse in der Kartenbeschriftung");
+check(!label.textContent.includes("Swisstopo"), "Keine technischen Hinweise in der Kartenbeschriftung");
+check(points.label("102").textContent === "102 - GWR-Adresse nicht verfügbar", "Keine erfundene Adresse bei fehlender GWR-Adresse");
+check(points.label("103", ["<img src=x>"]).textContent === "103 - <img src=x>", "Adressangaben werden als Text übergeben");
 layer.markers[1].events.click();
 check(selected.join() === "102", "Punktklick hebt die richtige EGID hervor");
 points.update(index, "102", 21);

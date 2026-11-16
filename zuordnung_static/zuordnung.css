@@ -12,10 +12,11 @@ body.top-panel-ready #workspace{padding-top:var(--top-panel-edge)}
 @media(prefers-reduced-motion:reduce){body.top-panel-ready #top-panel{transition:none}}
 @media(max-width:650px){body.top-panel-ready{overflow:auto}}
 .gvbsid-info{border:0;border-bottom:1px dotted #6c9790;border-radius:0;padding:2px 0;background:transparent;color:var(--accent);font-weight:700;cursor:help;text-align:left}
-.record-heading{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.gvbs-address{max-width:320px;font-size:12px;white-space:normal;overflow-wrap:anywhere;color:#36525e}
-.egid-tooltip{display:block;width:max-content;max-width:min(560px,calc(100vw - 48px));white-space:pre-line;word-break:normal;overflow-wrap:break-word}
-.record-purpose{display:block;max-width:300px;margin-top:4px;color:#627982;font-size:12px;white-space:normal;overflow-wrap:anywhere}
+.gvbs-info-title{display:block;margin-top:9px;font-size:12px;color:#36525e}
+.gvbs-info-list{max-width:340px;margin:6px 0 0;padding-left:18px;font-size:12px;line-height:1.6;white-space:normal;overflow-wrap:break-word;color:#526e78}
+.gvbs-info-list li+li{margin-top:4px}
+.gwr-column{min-width:190px;vertical-align:top}
+.gwr-table-address{display:block;max-width:280px;margin-top:6px;font-size:12px;font-weight:400;line-height:1.5;white-space:normal;overflow-wrap:break-word;color:#526e78}
 .record-editor{margin-top:10px;max-width:300px;white-space:normal}
 .record-editor summary{font-size:11px;color:#526e78;cursor:pointer;padding:4px 0}
 .record-editor .edit-fields{display:grid;gap:10px;margin-top:10px}
