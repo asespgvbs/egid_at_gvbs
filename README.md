@@ -1,5 +1,16 @@
 # EGID-Matching
 
+Für die manuelle n:m-Zuordnung der Prüffälle gibt es zusätzlich das eigenständige
+[lokale Zuordnungswerkzeug](ZUORDNUNG.md):
+
+```powershell
+.\.venv\Scripts\python.exe zuordnung_app.py
+```
+
+Es verwendet vorhandene Abhängigkeiten ohne weitere Installation. Datenbankwahl,
+Import, Bearbeitungsstand, amtliche Geodatenanbindung und vollständiger Export sind in
+der verlinkten Anleitung beschrieben. Die beiden Auswertungen bleiben unabhängig.
+
 Das Projekt enthält zwei eigenständige Auswertungen mit getrennten Excel-Dateien:
 
 | Skript | Perspektive | Standardausgabe |
