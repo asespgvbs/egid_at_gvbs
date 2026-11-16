@@ -136,6 +136,65 @@ class AppTests(SyntheticMemory):
         self.assertEqual(self.post("/api/save", self.decision()).status_code, 200)
         self.assertEqual(self.database.records()[1]["status"], "Offen")
 
+    def test_save_without_status_completes_decision_and_refreshes_progress_and_queue(self):
+        self.select(activate=True)
+        payload = self.decision(assigned=["101"])
+        del payload["decisions"][0]["status"]
+        response = self.post("/api/save", payload)
+        self.assertEqual(response.status_code, 200)
+        expected = {"total": 3, "completed": 1, "impossible": 0, "remaining": 2}
+        self.assertEqual(response.json["progress"], expected)
+        self.assertEqual(self.client.get("/api/state").json["progress"], expected)
+        self.assertEqual([row["gvbsid"] for row in self.client.get("/api/queue").json["records"]], ["SYNTHETIC-2", "SYNTHETIC-3"])
+        rows = self.database.records()
+        self.assertEqual(rows[0]["status"], "Abgeschlossen")
+        self.assertEqual(rows[0]["assigned"], ["101"])
+        self.assertEqual(rows[0]["comment"], "Synthetischer Kommentar")
+        self.assertEqual(rows[1]["status"], "Offen")
+        self.assertEqual(rows[1]["version"], 1)
+
+    def test_save_empty_decision_without_status_counts_as_no_assignment_possible(self):
+        self.select(activate=True)
+        payload = self.decision(assigned=[])
+        del payload["decisions"][0]["status"]
+        response = self.post("/api/save", payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["progress"], {"total": 3, "completed": 0, "impossible": 1, "remaining": 2})
+        self.assertEqual(self.database.records()[0]["status"], "Keine Zuordnung möglich")
+        self.assertNotIn("SYNTHETIC-1", [row["gvbsid"] for row in self.client.get("/api/queue").json["records"]])
+
+    def test_previous_open_assignment_is_completed_by_saving_it_again(self):
+        self.select(activate=True)
+        previous = self.post("/api/save", self.decision("Offen", ["101"]))
+        self.assertEqual(previous.json["progress"]["completed"], 0)
+        payload = self.decision(assigned=["101"], version=2)
+        del payload["decisions"][0]["status"]
+        response = self.post("/api/save", payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["progress"]["completed"], 1)
+        self.assertEqual(self.database.records()[0]["assigned"], ["101"])
+
+    def test_reopened_decision_updates_counts_when_assignments_are_removed_or_added(self):
+        self.select(activate=True)
+        for version, assigned, completed, impossible in ((1, ["101"], 1, 0), (2, [], 0, 1), (3, ["102"], 1, 0)):
+            payload = self.decision(assigned=assigned, version=version)
+            del payload["decisions"][0]["status"]
+            response = self.post("/api/save", payload)
+            with self.subTest(assigned=assigned):
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json["progress"]["completed"], completed)
+                self.assertEqual(response.json["progress"]["impossible"], impossible)
+                self.assertEqual(response.json["progress"]["remaining"], 2)
+
+    def test_automatic_completion_batch_is_rolled_back_on_conflict(self):
+        self.select(activate=True)
+        payload = self.decision(assigned=["101"])
+        del payload["decisions"][0]["status"]
+        payload["decisions"].append({"gvbsid": "SYNTHETIC-2", "version": 999, "assigned": []})
+        self.assertEqual(self.post("/api/save", payload).status_code, 409)
+        self.assertEqual(self.client.get("/api/state").json["progress"], {"total": 3, "completed": 0, "impossible": 0, "remaining": 3})
+        self.assertTrue(all(row["version"] == 1 and not row["assigned"] for row in self.database.records()))
+
     def test_stale_batch_and_unknown_egid_are_rejected_without_partial_write(self):
         self.select(activate=True)
         payload = self.decision()

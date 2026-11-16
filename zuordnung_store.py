@@ -226,15 +226,15 @@ class ReviewStore:
                     raise ReviewError("Die angegebene GVBSID ist nicht vorhanden.")
                 if decision.get("version") != row[0]:
                     raise ConflictError("Ein Datensatz wurde zwischenzeitlich geändert. Bitte neu laden; es wurde nichts gespeichert.")
-                status = decision.get("status")
-                if status not in STATUSES:
-                    raise ReviewError("Unbekannter Bearbeitungsstatus.")
                 values = decision.get("assigned", [])
                 if not isinstance(values, list):
                     raise ReviewError("Die Zuordnung muss eine Liste von EGID sein.")
                 assigned = {egid_text(value) for value in values}
                 if not assigned <= set(allowed_egids):
                     raise ReviewError("Eine EGID gehört nicht zu den verfügbaren Kandidaten oder verlässlich geladenen Geodaten.")
+                status = decision.get("status", "Abgeschlossen" if assigned else "Keine Zuordnung möglich")
+                if status not in STATUSES:
+                    raise ReviewError("Unbekannter Bearbeitungsstatus.")
                 if status == "Abgeschlossen" and not assigned:
                     raise ReviewError("Abgeschlossen erfordert mindestens eine zugeteilte EGID.")
                 if status == "Keine Zuordnung möglich" and assigned:

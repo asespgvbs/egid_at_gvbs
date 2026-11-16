@@ -109,7 +109,9 @@ function gates() {
   $("import").disabled = busy || !database;
   $("activate").disabled = busy || !database || !state?.progress.total;
   for (const id of ["search", "search-button", "export", "queue"]) $(id).disabled = busy || !active;
-  $("save").disabled = busy || !active || !current || !dirty.size;
+  const selectedRecord = current?.records.find(record => record.gvbsid === current.selected);
+  const openDecision = selectedRecord && !["Abgeschlossen", "Keine Zuordnung möglich"].includes(selectedRecord.status);
+  $("save").disabled = busy || !active || !current || (!dirty.size && !openDecision);
   const position = current ? queue.findIndex(record => record.gvbsid === current.selected) : -1;
   $("previous").disabled = busy || !active || position <= 0;
   $("next").disabled = busy || !active || !queue.length || position >= queue.length - 1;
@@ -453,7 +455,9 @@ $("previous").addEventListener("click", () => action(async () => {const index = 
 $("next").addEventListener("click", () => action(async () => {const index = queue.findIndex(record => record.gvbsid === current?.selected); if (index + 1 < queue.length) await openCase(queue[index + 1].gvbsid);}));
 $("save").addEventListener("click", () => action(async () => {
   const selected = current.selected, oldIndex = queue.findIndex(record => record.gvbsid === selected);
-  const decisions = current.records.filter(record => dirty.has(record.gvbsid)).map(record => ({gvbsid: record.gvbsid, version: record.version, assigned: record.assigned, status: record.status, comment: record.comment}));
+  const edited = current.records.filter(record => dirty.has(record.gvbsid));
+  const recordsToSave = edited.length ? edited : current.records.filter(record => record.gvbsid === selected);
+  const decisions = recordsToSave.map(record => ({gvbsid: record.gvbsid, version: record.version, assigned: record.assigned, comment: record.comment}));
   const value = await api("/api/save", {selected, decisions}); dirty.clear(); applyState(value); await refreshQueue();
   if (queue.some(record => record.gvbsid === selected)) await openCase(selected, false);
   else if (queue.length) await openCase(queue[Math.min(Math.max(oldIndex, 0), queue.length - 1)].gvbsid, false);
