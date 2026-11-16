@@ -6,13 +6,15 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+from .common import txt
 # ============================================================
 # KONFIGURATION
 # ============================================================
 DEFAULT_GWR_DB = Path(
     r"C:\dev\private\gvbs_dash\archiv\gwr_daten_bs\data.sqlite"
 )
-DEFAULT_TEST_INPUT = Path(__file__).resolve().parent / "data" / "test_match_data.xlsx"
+DEFAULT_TEST_INPUT = Path.cwd() / "data" / "test_match_data.xlsx"
 DEFAULT_OUTPUT = Path("gebaeude_egid_matching.xlsx")
 TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
 REQUIRED = (
@@ -132,12 +134,6 @@ CATEGORY_SHEET_TITLES = {
 # ============================================================
 # HILFSFUNKTIONEN
 # ============================================================
-def txt(value):
-    if value is None:
-        return ""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value).strip()
 def anzahl_text(anzahl, singular, plural):
     wort = singular if anzahl == 1 else plural
     return f"{anzahl} {wort}"

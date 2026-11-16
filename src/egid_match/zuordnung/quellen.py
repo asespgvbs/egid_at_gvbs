@@ -1,7 +1,7 @@
 """Öffentliche Quellenprofile. Keine Zugangsdaten, keine Datensätze.
 
 Geprüft am 13.11.2026: ausschliesslich offizielle Dienst-/Schemabeschreibungen,
-keine Items-/Records-Abfragen. Details und Grenzen stehen in GEODATEN.md.
+keine Items-/Records-Abfragen. Details und Grenzen stehen in docs/GEODATEN.md.
 """
 
 PARCEL_COLLECTION = "ch.bs.av_parzellen_rechtliche_abgrenzungen_avpz.liegenschaft"

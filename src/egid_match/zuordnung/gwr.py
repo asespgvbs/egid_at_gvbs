@@ -4,9 +4,8 @@ import math
 from pathlib import Path
 import sqlite3
 
-from zuordnung_geometrie import GeometryError, normalize_geometry
-from zuordnung_store import ReviewError, egid_text
-from gvbsid_matching import txt
+from .geometrie import GeometryError, normalize_geometry
+from ..common import ReviewError, egid_text, txt
 
 
 APPROXIMATION = "Swisstopo-Näherung (nur Kartendarstellung, keine Grenzprüfung)"

@@ -23,7 +23,7 @@ function runReviewUiTest(sources) {
       return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
     }
   }
-  const elements = Object.fromEntries([...sources["zuordnung_templates/zuordnung.html"].matchAll(/\bid="([\w-]+)"/g)].map(match => [match[1], new Element()]));
+  const elements = Object.fromEntries([...sources["src/egid_match/zuordnung/templates/zuordnung.html"].matchAll(/\bid="([\w-]+)"/g)].map(match => [match[1], new Element()]));
   elements["review-config"].textContent = '{"token":"synthetic-token"}';
   elements["case-content"].append(elements.matrix);
   const document = {body: new Element("body"), documentElement: new Element("html"), createElement: tag => new Element(tag), getElementById(id) {if (!elements[id]) throw new Error("Unbekannte DOM-ID"); return elements[id];}, addEventListener() {}};
@@ -46,8 +46,8 @@ function runReviewUiTest(sources) {
     polygon(coordinates, options) {const result = layer(options); result.coordinates = coordinates; return result;}
   };
   let apiCalls = 0;
-  const points = new Function("document", sources["zuordnung_static/egid_punkte.js"] + "\nreturn globalThis.ReviewEgidPoints;")(document);
-  const source = sources["zuordnung_static/zuordnung.js"];
+  const points = new Function("document", sources["src/egid_match/zuordnung/static/egid_punkte.js"] + "\nreturn globalThis.ReviewEgidPoints;")(document);
+  const source = sources["src/egid_match/zuordnung/static/zuordnung.js"];
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
   const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,configure(value,view,layers){current=value;selectedEgid=null;state={database:'synthetic',active:true,progress:{total:1}};queue=[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
@@ -122,6 +122,6 @@ function runReviewUiTest(sources) {
 
 if (typeof require === "function") {
   const fs = require("node:fs"), path = require("node:path");
-  const sources = Object.fromEntries(["zuordnung_static/egid_punkte.js", "zuordnung_static/zuordnung.js", "zuordnung_templates/zuordnung.html"].map(name => [name, fs.readFileSync(path.join(__dirname, "..", name), "utf8")]));
+  const sources = Object.fromEntries(["src/egid_match/zuordnung/static/egid_punkte.js", "src/egid_match/zuordnung/static/zuordnung.js", "src/egid_match/zuordnung/templates/zuordnung.html"].map(name => [name, fs.readFileSync(path.join(__dirname, "..", name), "utf8")]));
   runReviewUiTest(sources);
 }

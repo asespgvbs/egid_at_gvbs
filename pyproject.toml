@@ -1,7 +1,7 @@
 [project]
 name = "egid-match"
 version = "0.1.0"
-description = "Add your description here"
+description = "GVBS-/EGID-Matching, EGID-Abdeckung und manuelle Zuordnung"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -9,8 +9,14 @@ dependencies = [
 ]
 
 [project.scripts]
-egid-match = "egid_match:main"
+egid-match = "egid_match.matching:main"
+egid-abdeckung = "egid_match.abdeckung:main"
+egid-zuordnung = "egid_match.zuordnung.app:main"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "egid_match"
+module-root = "src"

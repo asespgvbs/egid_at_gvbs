@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-import gvbsid_matching as gvbs
+from . import matching as gvbs
 
 
 DEFAULT_OUTPUT = Path("egid_abdeckung.xlsx")

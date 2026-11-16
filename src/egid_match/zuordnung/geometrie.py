@@ -4,7 +4,7 @@ import copy
 import math
 import time
 
-from zuordnung_store import ReviewError
+from ..common import ReviewError
 
 
 EPSILON = 1e-11

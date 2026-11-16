@@ -1,7 +1,6 @@
 """Dialogtests mit simulierten Auswahlen und vollständig synthetischen Daten."""
 
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import sys
@@ -9,10 +8,11 @@ import unittest
 from unittest.mock import Mock, patch
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "gvbsid_matching.py"
-SPEC = importlib.util.spec_from_file_location("egid_match_main", SCRIPT)
-app = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(app)
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from egid_match import matching as app
+
+SCRIPT = ROOT / "src" / "egid_match" / "matching.py"
 
 
 class FileSelectionTests(unittest.TestCase):
@@ -111,7 +111,7 @@ class MainSelectionTests(unittest.TestCase):
 
     def test_cancel_without_arguments_uses_default_test_input(self):
         self.run_main([], None)
-        expected_input = SCRIPT.parent / "data" / "test_match_data.xlsx"
+        expected_input = Path.cwd() / "data" / "test_match_data.xlsx"
         self.mocks["read_excel"].assert_called_once_with(expected_input)
         self.assertEqual(self.mocks["save_excel"].call_args.args[0], Path(app.TEST_OUTPUT_NAME))
 

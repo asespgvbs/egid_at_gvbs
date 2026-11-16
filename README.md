@@ -1,29 +1,62 @@
 # EGID-Matching
 
 Für die manuelle n:m-Zuordnung der Prüffälle gibt es zusätzlich das eigenständige
-[lokale Zuordnungswerkzeug](ZUORDNUNG.md):
+[lokale Zuordnungswerkzeug](docs/ZUORDNUNG.md):
 
 ```powershell
-.\.venv\Scripts\python.exe zuordnung_app.py
+.\.venv\Scripts\python.exe -m egid_match.zuordnung
 ```
 
 Es verwendet vorhandene Abhängigkeiten ohne weitere Installation. Datenbankwahl,
 Import, Bearbeitungsstand, amtliche Geodatenanbindung und vollständiger Export sind in
 der verlinkten Anleitung beschrieben. Die beiden Auswertungen bleiben unabhängig.
 
+## Paketstruktur und Startbefehle
+
+```text
+src/egid_match/
+  common.py              Gemeinsame Fehlerklassen und Text-/ID-Helfer
+  matching.py            GVBSID-Matching
+  abdeckung.py           EGID-Abdeckung
+  zuordnung/
+    app.py               Lokale Oberfläche und HTTP-Endpunkte
+    store.py             Zuordnungsdatenbank und Excel-Import/-Export
+    geo.py               Parzellen-/Gebäudekontext
+    geometrie.py         Geometrieprüfung
+    geo_transport.py     Begrenzte Geodienstabfragen
+    gwr.py               Koordinaten und GWR-Adressabfrage
+    quellen.py           Öffentliche Quellenprofile
+    static/              JavaScript und CSS
+    templates/           HTML
+tests/                   Synthetische Python-/JavaScript-Tests
+docs/                    Bedienungs- und Geodatendokumentation
+```
+
+Die Programme lassen sich aus dem Repository mit der vorhandenen Python-Umgebung starten:
+
+| Programm | Modulaufruf | Konsolenbefehl nach Installation/Aktualisierung der Projektumgebung |
+| --- | --- | --- |
+| Matching | `python -m egid_match.matching` | `egid-match` |
+| Abdeckung | `python -m egid_match.abdeckung` | `egid-abdeckung` |
+| Zuordnungsoberfläche | `python -m egid_match.zuordnung` | `egid-zuordnung` |
+
+`python -m egid_match` startet ebenfalls das Matching. Die Oberfläche lädt ihre
+HTML-/CSS-/JS-Dateien über Paketressourcen; die URLs unter `/static/` bleiben gleich.
+Daten und lokale Einstellungen werden durch die Paketstruktur nicht verschoben.
+
 Das Projekt enthält zwei eigenständige Auswertungen mit getrennten Excel-Dateien:
 
-| Skript | Perspektive | Standardausgabe |
+| Python-Modul | Perspektive | Standardausgabe |
 | --- | --- | --- |
-| `gvbsid_matching.py` | Eine Ergebniszeile pro GVBS-Eingabezeile | `gebaeude_egid_matching.xlsx` |
-| `egid_abdeckung.py` | Eine Ergebniszeile pro bestehender EGID | `egid_abdeckung.xlsx` |
+| `egid_match.matching` | Eine Ergebniszeile pro GVBS-Eingabezeile | `gebaeude_egid_matching.xlsx` |
+| `egid_match.abdeckung` | Eine Ergebniszeile pro bestehender EGID | `egid_abdeckung.xlsx` |
 
-Die bisherige Anwendung wurde unverändert nach `gvbsid_matching.py` verschoben.
-Die GVBSID-Auswertung wird direkt gestartet:
+Der Anwendungscode liegt als Paket unter `src/egid_match/`. Die GVBSID-Auswertung
+wird als Modul gestartet:
 
 ```powershell
 cd C:\dev\repos\egid_match
-.\.venv\Scripts\python.exe gvbsid_matching.py
+.\.venv\Scripts\python.exe -m egid_match.matching
 ```
 
 Beim Start öffnet das Skript einen Windows-Dialog zur Auswahl der
@@ -33,7 +66,7 @@ Vor dem Überschreiben einer vorhandenen Datei fragt der Speicherdialog nach.
 
 ```powershell
 cd C:\dev\repos\egid_match
-.\.venv\Scripts\python.exe gvbsid_matching.py
+.\.venv\Scripts\python.exe -m egid_match.matching
 ```
 
 Die Eingabe enthält diese Spalten und darf danach beliebige weitere Spalten
@@ -100,7 +133,8 @@ Excel-Zusammenfassung und den Kategorieblättern bleibt erhalten.
 
 Wird einer der beiden Dialoge abgebrochen oder geschlossen, verwirft das
 Skript die Dialogauswahl und verwendet `data/test_match_data.xlsx` relativ
-zum Skriptverzeichnis (hier: `C:\dev\repos\egid_match\data\test_match_data.xlsx`).
+zum aktuellen Arbeitsverzeichnis. Beim Start im Repository bleibt dies
+`C:\dev\repos\egid_match\data\test_match_data.xlsx`.
 Mit `--input` lässt sich eine andere Test-Eingabedatei festlegen.
 Die Ausgabe heisst dann immer
 `gebaeude_egid_matching_TEST.xlsx`. Sie liegt im Ordner von `--output` oder,
@@ -110,7 +144,7 @@ unterstützt damit ebenfalls den Testlauf bei Dialogabbruch.
 Beispiel mit Platzhaltern für die bisherigen Testpfade:
 
 ```powershell
-.\.venv\Scripts\python.exe gvbsid_matching.py --input "PFAD\testeingabe.xlsx" --output "AUSGABEORDNER\gebaeude_egid_matching.xlsx" --gwr-db "PFAD\test_gwr.sqlite"
+.\.venv\Scripts\python.exe -m egid_match.matching --input "PFAD\testeingabe.xlsx" --output "AUSGABEORDNER\gebaeude_egid_matching.xlsx" --gwr-db "PFAD\test_gwr.sqlite"
 ```
 
 `--gwr-db` bestimmt wie bisher die verwendete GWR-Datenbank. Ohne diese Option
@@ -129,25 +163,26 @@ Dialogfenster geöffnet und keine Excel-Dateien geschrieben:
 ```powershell
 .\.venv\Scripts\python.exe -I -B tests\test_file_selection.py
 .\.venv\Scripts\python.exe -I -B tests\test_egid_abdeckung.py
+.\.venv\Scripts\python.exe -I -B tests\test_package.py
 ```
 
 ## Eigenständige EGID-Abdeckung
 
 ```powershell
 cd C:\dev\repos\egid_match
-.\.venv\Scripts\python.exe egid_abdeckung.py
+.\.venv\Scripts\python.exe -m egid_match.abdeckung
 ```
 
 Ohne `--input` werden die GVBS-Eingabe und die neue Ausgabedatei über Dialoge
 ausgewählt. Der vorgeschlagene Dateiname ist `egid_abdeckung.xlsx`. Bei
 Dialogabbruch endet nur diese neue Auswertung ohne Datenzugriff. Der bisherige
-Testlauf bei Dialogabbruch in `gvbsid_matching.py` bleibt erhalten.
+Testlauf bei Dialogabbruch in `egid_match.matching` bleibt erhalten.
 
 Mit `--input` und optional `--output` läuft die EGID-Auswertung ohne Dateidialoge.
 Beispiel mit Platzhaltern:
 
 ```powershell
-.\.venv\Scripts\python.exe egid_abdeckung.py --input "PFAD\gvbs_eingabe.xlsx" --output "AUSGABEORDNER\egid_abdeckung.xlsx" --gwr-db "PFAD\gwr_basel_stadt.sqlite"
+.\.venv\Scripts\python.exe -m egid_match.abdeckung --input "PFAD\gvbs_eingabe.xlsx" --output "AUSGABEORDNER\egid_abdeckung.xlsx" --gwr-db "PFAD\gwr_basel_stadt.sqlite"
 ```
 
 Die angegebene GWR-Datenbank muss den Bestand des Kantons Basel-Stadt enthalten.

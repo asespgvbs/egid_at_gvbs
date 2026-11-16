@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 import re
 from urllib.parse import urlsplit
 
-from zuordnung_geometrie import GeometryError, bounds, geometry_relation, normalize_geometry, point_location, validate_geometry
-from zuordnung_geo_transport import SourceClient, SourceError, fetch_json, public_url
-from zuordnung_quellen import PUBLIC_SOURCES
-from zuordnung_store import ReviewError, egid_text, identifiers
-from zuordnung_gwr import gwr_point, APPROXIMATION
+from .geometrie import GeometryError, bounds, geometry_relation, normalize_geometry, point_location, validate_geometry
+from .geo_transport import SourceClient, SourceError, fetch_json, public_url
+from .quellen import PUBLIC_SOURCES
+from ..common import ReviewError, egid_text, identifiers
+from .gwr import gwr_point, APPROXIMATION
 
 DEFAULTS = dict(PUBLIC_SOURCES)
 FIELDS = tuple(DEFAULTS)

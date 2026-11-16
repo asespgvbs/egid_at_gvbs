@@ -1,7 +1,7 @@
 "use strict";
 
 // Offline: keine Karte, kein Browserstart, keine echten Gebäude oder Dienste.
-if (typeof require === "function") require("../zuordnung_static/egid_punkte.js");
+if (typeof require === "function") require("../src/egid_match/zuordnung/static/egid_punkte.js");
 const points = globalThis.ReviewEgidPoints;
 let assertions = 0;
 function check(value, message) {

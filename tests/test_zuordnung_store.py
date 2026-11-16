@@ -10,9 +10,9 @@ from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from zuordnung_store import ConflictError, FINISHED, ReviewError, ReviewStore, prepare_rows, read_review_excel
-from zuordnung_geo import DEFAULTS, GeoBS, valid_geometry, validate_config
+sys.path.insert(0, str(ROOT / "src"))
+from egid_match.zuordnung.store import ConflictError, FINISHED, ReviewError, ReviewStore, prepare_rows, read_review_excel
+from egid_match.zuordnung.geo import DEFAULTS, GeoBS, valid_geometry, validate_config
 
 
 HEADERS = ["GVBSID", "Zweckbestimmung", "Strasse", "Hausnummer", "Postleitzahl", "EGID-Kandidaten", "EGID mit Hausnummernzusatz", "EGRID-Kandidaten", "Originalwert"]
@@ -77,7 +77,7 @@ class StoreTests(SyntheticMemory):
 
     def test_missing_database_is_not_created_by_open(self):
         path = self.folder / "missing.sqlite"
-        with patch("zuordnung_store.sqlite3.connect", side_effect=sqlite3.OperationalError("Synthetisch nicht vorhanden")) as connect, self.assertRaises(sqlite3.Error):
+        with patch("egid_match.zuordnung.store.sqlite3.connect", side_effect=sqlite3.OperationalError("Synthetisch nicht vorhanden")) as connect, self.assertRaises(sqlite3.Error):
             ReviewStore(path).open()
         self.assertTrue(connect.call_args.args[0].endswith("?mode=rw"))
 
@@ -186,12 +186,12 @@ class StoreTests(SyntheticMemory):
         for values in VALUES:
             workbook.active.append(values)
         store = self.empty_store()
-        with patch("zuordnung_store.load_workbook", return_value=workbook):
+        with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook):
             self.assertEqual(store.import_excel(path), 3)
         self.assertEqual(store.records()[0]["raw"]["Originalwert"], "0012")
         fake = Mock()
         fake.sheetnames = ["SynthetischFalschesBlatt"]
-        with patch("zuordnung_store.load_workbook", return_value=fake), self.assertRaises(ReviewError):
+        with patch("egid_match.zuordnung.store.load_workbook", return_value=fake), self.assertRaises(ReviewError):
             read_review_excel(path)
         fake.close.assert_called_once()
 

@@ -5,7 +5,6 @@ import copy
 import importlib.util
 import io
 from pathlib import Path
-import runpy
 import sqlite3
 import sys
 import unittest
@@ -13,9 +12,9 @@ from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-import gvbsid_matching as gvbs
-import egid_abdeckung as coverage
+sys.path.insert(0, str(ROOT / "src"))
+import egid_match.matching as gvbs
+import egid_match.abdeckung as coverage
 
 
 def synthetic_inventory():
@@ -277,9 +276,10 @@ class WorkbookTests(unittest.TestCase):
 class EntrypointTests(unittest.TestCase):
     def test_imports_do_not_trigger_dialogs_data_reads_or_exports(self):
         import tkinter
-        for filename in ("gvbsid_matching.py", "egid_abdeckung.py"):
+        for name in ("matching", "abdeckung"):
+            filename = ROOT / "src" / "egid_match" / (name + ".py")
             with self.subTest(filename=filename), patch.object(sqlite3, "connect") as database, patch.object(gvbs, "load_workbook") as read, patch("openpyxl.load_workbook") as external_read, patch("openpyxl.workbook.workbook.Workbook.save") as save, patch.object(tkinter, "Tk") as dialog:
-                spec = importlib.util.spec_from_file_location("synthetic_import_check", ROOT / filename)
+                spec = importlib.util.spec_from_file_location("egid_match.synthetic_" + name, filename)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 database.assert_not_called()
@@ -289,14 +289,14 @@ class EntrypointTests(unittest.TestCase):
                 dialog.assert_not_called()
 
     def test_both_scripts_have_independent_help_entrypoints(self):
-        for filename in ("gvbsid_matching.py", "egid_abdeckung.py"):
-            with self.subTest(filename=filename), patch.object(sys, "argv", [filename, "--help"]), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as exit_result:
-                runpy.run_path(str(ROOT / filename), run_name="__main__")
+        for module in (gvbs, coverage):
+            with self.subTest(module=module.__name__), patch.object(sys, "argv", [module.__name__, "--help"]), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as exit_result:
+                module.main()
             self.assertEqual(exit_result.exception.code, 0)
 
     def test_coverage_runs_without_gvbs_export_or_previous_excel(self):
         inventory, records, addr_egids, addresses, grids, grid_egids = synthetic_inventory()
-        with patch.object(sys, "argv", ["egid_abdeckung.py", "--input", "synthetic/input.xlsx", "--output", "synthetic/coverage.xlsx"]), patch.object(gvbs, "select_files") as select, patch.object(gvbs, "read_gwr", return_value=(addr_egids, addresses, grids, grid_egids)), patch.object(coverage, "read_egid_inventory", return_value=(inventory, addresses)), patch.object(gvbs, "read_excel", return_value=(list(gvbs.REQUIRED), records)) as read, patch.object(gvbs, "match", wraps=gvbs.match) as matching, patch.object(gvbs, "save_excel") as old_export, patch.object(coverage, "save_coverage_excel") as new_export, contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(sys, "argv", ["egid-abdeckung", "--input", "synthetic/input.xlsx", "--output", "synthetic/coverage.xlsx"]), patch.object(gvbs, "select_files") as select, patch.object(gvbs, "read_gwr", return_value=(addr_egids, addresses, grids, grid_egids)), patch.object(coverage, "read_egid_inventory", return_value=(inventory, addresses)), patch.object(gvbs, "read_excel", return_value=(list(gvbs.REQUIRED), records)) as read, patch.object(gvbs, "match", wraps=gvbs.match) as matching, patch.object(gvbs, "save_excel") as old_export, patch.object(coverage, "save_coverage_excel") as new_export, contextlib.redirect_stdout(io.StringIO()):
             coverage.main()
         select.assert_not_called()
         read.assert_called_once_with(Path("synthetic/input.xlsx"))
@@ -306,7 +306,7 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(len(new_export.call_args.args[1]), 14)
 
     def test_cancel_coverage_dialog_does_not_access_data(self):
-        with patch.object(sys, "argv", ["egid_abdeckung.py"]), patch.object(gvbs, "select_files", return_value=None) as select, patch.object(gvbs, "read_gwr") as read, patch.object(coverage, "read_egid_inventory") as inventory, patch.object(gvbs, "read_excel") as excel, patch.object(coverage, "save_coverage_excel") as export, contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(sys, "argv", ["egid-abdeckung"]), patch.object(gvbs, "select_files", return_value=None) as select, patch.object(gvbs, "read_gwr") as read, patch.object(coverage, "read_egid_inventory") as inventory, patch.object(gvbs, "read_excel") as excel, patch.object(coverage, "save_coverage_excel") as export, contextlib.redirect_stdout(io.StringIO()):
             coverage.main()
         select.assert_called_once_with(None, Path("egid_abdeckung.xlsx"))
         read.assert_not_called()
@@ -315,7 +315,7 @@ class EntrypointTests(unittest.TestCase):
         export.assert_not_called()
 
     def test_identical_input_output_stops_before_data_access(self):
-        with patch.object(sys, "argv", ["egid_abdeckung.py", "--input", "synthetic/same.xlsx", "--output", "synthetic/same.xlsx"]), patch.object(gvbs, "read_gwr") as read, contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+        with patch.object(sys, "argv", ["egid-abdeckung", "--input", "synthetic/same.xlsx", "--output", "synthetic/same.xlsx"]), patch.object(gvbs, "read_gwr") as read, contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
             coverage.main()
         self.assertEqual(error.exception.code, 2)
         read.assert_not_called()

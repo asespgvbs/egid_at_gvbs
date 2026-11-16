@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.sax.saxutils import escape
 
-from zuordnung_store import ReviewError
+from ..common import ReviewError
 
 
 CRS84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"

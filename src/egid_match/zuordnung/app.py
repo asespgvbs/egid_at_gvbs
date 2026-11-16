@@ -13,12 +13,14 @@ from zipfile import BadZipFile
 
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from urllib.parse import parse_qs
 
-from zuordnung_geo import DEFAULTS, GeoBS, cached_context
-from zuordnung_gwr import read_gwr_addresses
-from zuordnung_store import ConflictError, FINISHED, ReviewError, ReviewStore, STATUSES
-from gvbsid_matching import DEFAULT_GWR_DB
+from .geo import DEFAULTS, GeoBS, cached_context
+from .gwr import read_gwr_addresses
+from .store import FINISHED, ReviewStore, STATUSES
+from ..common import ConflictError, ReviewError
+from ..matching import DEFAULT_GWR_DB
 
 
 class NativeDialogs:
@@ -132,7 +134,7 @@ class ReviewApplication:
     def __init__(self, preferences, dialogs, resume=True, geo_fetcher=None, gwr_path=None):
         self.session = ReviewSession(preferences, dialogs, resume, geo_fetcher, gwr_path)
         self.token = secrets.token_urlsafe(32)
-        self.root = Path(__file__).resolve().parent
+        self.root = files("egid_match.zuordnung")
 
     def handle(self, method, target, body=b"", headers=None, remote_addr="127.0.0.1"):
         headers = {key.lower(): value for key, value in (headers or {}).items()}
@@ -163,14 +165,14 @@ class ReviewApplication:
             parts = urlsplit(target)
             path = parts.path
             if method == "GET" and path == "/":
-                template = (self.root / "zuordnung_templates" / "zuordnung.html").read_text(encoding="utf-8")
+                template = (self.root / "templates" / "zuordnung.html").read_text(encoding="utf-8")
                 # Der Token enthaelt nur URL-sichere ASCII-Zeichen.
                 template = template.replace("__REVIEW_CONFIG__", json.dumps({"token": self.token}))
                 return Response(200, template.encode("utf-8"), "text/html; charset=utf-8")
             if method == "GET" and path in ("/static/zuordnung.css", "/static/zuordnung.js", "/static/egid_punkte.js"):
                 name = path.rsplit("/", 1)[1]
                 content_type = "text/css; charset=utf-8" if name.endswith(".css") else "application/javascript; charset=utf-8"
-                return Response(200, (self.root / "zuordnung_static" / name).read_bytes(), content_type)
+                return Response(200, (self.root / "static" / name).read_bytes(), content_type)
             if method == "GET":
                 with self.session.lock:
                     if path == "/api/state":

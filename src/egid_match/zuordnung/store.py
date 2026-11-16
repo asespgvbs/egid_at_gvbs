@@ -4,38 +4,19 @@ from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta, timezone
 import json
 from pathlib import Path
-import re
 import sqlite3
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
-import gvbsid_matching as matching
+from .. import matching
+from ..common import ConflictError, ReviewError, egid_text, identifiers
 
 
 STATUSES = ("Offen", "Abgeschlossen", "Unklar", "Zurückgestellt", "Keine Zuordnung möglich")
 FINISHED = {"Abgeschlossen", "Keine Zuordnung möglich"}
 SHEET = "review_address_suffix"
 PRODUCT = "egid-match-manual-review"
-
-
-class ReviewError(ValueError):
-    pass
-
-
-class ConflictError(ReviewError):
-    pass
-
-
-def egid_text(value):
-    value = matching.txt(value)
-    if not re.fullmatch(r"[1-9]\d*", value):
-        raise ReviewError("EGID müssen positive ganze Zahlen sein.")
-    return str(int(value))
-
-
-def identifiers(value):
-    return sorted({part.strip() for part in re.split(r"[,;\n]+", matching.txt(value)) if part.strip()})
 
 
 def _encode(value):

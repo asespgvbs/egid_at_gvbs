@@ -7,11 +7,11 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
-from zuordnung_geometrie import GeometryError
-from zuordnung_gwr import APPROXIMATION, gwr_point, read_gwr_addresses
-from zuordnung_store import ReviewError
+from egid_match.zuordnung.geometrie import GeometryError
+from egid_match.zuordnung.gwr import APPROXIMATION, gwr_point, read_gwr_addresses
+from egid_match.zuordnung.store import ReviewError
 
 
 class GwrTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class GwrTests(unittest.TestCase):
         connection.set_authorizer(lambda action, *args: sqlite3.SQLITE_DENY if action in denied else sqlite3.SQLITE_OK)
         tracked = Mock(wraps=connection)
         path = ROOT / "synthetic-not-created" / "gwr.sqlite"
-        with patch("zuordnung_gwr.sqlite3.connect", return_value=tracked) as connect:
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=tracked) as connect:
             addresses = read_gwr_addresses(path, ["101", "999"])
         self.assertEqual(addresses, {"101": [["Seitengasse", "3.1", "0000"], ["Teststrasse", "10a", "0000"]], "999": []})
         self.assertTrue(connect.call_args.args[0].endswith("?mode=ro"))
@@ -42,7 +42,7 @@ class GwrTests(unittest.TestCase):
         tracked.close.assert_called_once()
 
     def test_no_ids_or_invalid_ids_never_open_a_database(self):
-        with patch("zuordnung_gwr.sqlite3.connect") as connect:
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect") as connect:
             self.assertEqual(read_gwr_addresses(ROOT / "synthetic.sqlite", []), {})
             with self.assertRaises(ReviewError):
                 read_gwr_addresses(ROOT / "synthetic.sqlite", ["101 OR 1=1"])
@@ -55,7 +55,7 @@ class GwrTests(unittest.TestCase):
                                [(value, "Testweg", "1", "0000") for value in range(1001, 1502)])
         connection.commit()
         tracked = Mock(wraps=connection)
-        with patch("zuordnung_gwr.sqlite3.connect", return_value=tracked):
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=tracked):
             addresses = read_gwr_addresses(ROOT / "synthetic.sqlite", range(1001, 1502))
         self.assertEqual(len(addresses), 501)
         self.assertTrue(all(value == [["Testweg", "1", "0000"]] for value in addresses.values()))
@@ -65,16 +65,16 @@ class GwrTests(unittest.TestCase):
     def test_source_errors_are_reported_and_connections_are_closed(self):
         connection = Mock()
         connection.execute.side_effect = sqlite3.OperationalError("Synthetisch fehlendes Schema")
-        with patch("zuordnung_gwr.sqlite3.connect", return_value=connection), self.assertRaises(ReviewError):
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=connection), self.assertRaises(ReviewError):
             read_gwr_addresses(ROOT / "synthetic.sqlite", ["101"])
         connection.close.assert_called_once()
-        with patch("zuordnung_gwr.sqlite3.connect", side_effect=sqlite3.OperationalError("Synthetisch nicht vorhanden")), self.assertRaises(ReviewError):
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", side_effect=sqlite3.OperationalError("Synthetisch nicht vorhanden")), self.assertRaises(ReviewError):
             read_gwr_addresses(ROOT / "synthetic.sqlite", ["101"])
 
     def test_foreign_egid_is_never_used_as_an_address_fallback(self):
         connection = Mock()
         connection.execute.side_effect = [None, None, [(999, "Fremder Testweg", "1", "0000")]]
-        with patch("zuordnung_gwr.sqlite3.connect", return_value=connection), self.assertRaises(ReviewError):
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=connection), self.assertRaises(ReviewError):
             read_gwr_addresses(ROOT / "synthetic.sqlite", ["101"])
         connection.close.assert_called_once()
 

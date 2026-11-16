@@ -17,7 +17,7 @@ Fehlermeldung auszublenden.
 
 ## Fest hinterlegte öffentliche Quellen
 
-Die Profile stehen in `zuordnung_quellen.py`. Der bisherige Konfigurationsbutton,
+Die Profile stehen in `src/egid_match/zuordnung/quellen.py`. Der bisherige Konfigurationsbutton,
 sein Dialog und der schreibende Konfigurationsendpunkt wurden entfernt. Alte
 Geo-Einstellungen in der lokalen Merkliste überschreiben die Profile nicht mehr.
 Der gemerkte Datenbankpfad bleibt erhalten.
@@ -65,7 +65,7 @@ Dateidialog und keinen Import-Endpunkt. Frühere GWR-Snapshot-Tabellen werden
 nicht mehr genutzt und nicht automatisch gelöscht. Bestehende manuelle
 Zuordnungen bleiben erhalten.
 
-`zuordnung_gwr.py` enthält die Koordinatentransformation für GKODE/GKODN und
+`src/egid_match/zuordnung/gwr.py` enthält die Koordinatentransformation für GKODE/GKODN und
 die gezielte GWR-Adressabfrage. Beim Modulimport erfolgt kein Datenzugriff.
 Die Skripte der Oberfläche werden in definierter Reihenfolge geladen.
 
@@ -103,7 +103,7 @@ Parzellen- und Gebäudequelle werden unabhängig ausgewertet. Auch bei einem
 Parzellenfehler bleiben erfolgreich geladene öffentliche Gebäudepunkte nutzbar.
 Beide Quellen unterliegen der unten beschriebenen Cache-Altersprüfung.
 
-`zuordnung_static/egid_punkte.js` verwendet Leaflet-GeoJSON mit `pointToLayer`,
+`src/egid_match/zuordnung/static/egid_punkte.js` verwendet Leaflet-GeoJSON mit `pointToLayer`,
 einem gemeinsamen Canvas-Renderer, GSTAT-Farben, zoomabhängigen Radien und
 dauerhafter EGID-/Adressbeschriftung. Der EGID-Canvas liegt über der Parzellenabdunkelung.
 

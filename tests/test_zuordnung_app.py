@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import io
 import json
-import runpy
+import importlib.util
 import sqlite3
 import sys
 from types import SimpleNamespace
@@ -13,11 +13,11 @@ from unittest.mock import Mock, patch
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 from test_zuordnung_store import HEADERS, VALUES, SyntheticMemory, feature, geo_config
-from zuordnung_app import NativeDialogs, create_app, request_handler
-from zuordnung_store import ReviewError, ReviewStore, prepare_rows
+from egid_match.zuordnung.app import NativeDialogs, create_app, request_handler
+from egid_match.zuordnung.store import ReviewError, ReviewStore, prepare_rows
 
 
 class MemorySocket:
@@ -72,13 +72,13 @@ class AppTests(SyntheticMemory):
             return self.database
         factory = Mock(side_effect=find_store)
         factory.create.side_effect = FileExistsError
-        store_patch = patch("zuordnung_app.ReviewStore", factory)
+        store_patch = patch("egid_match.zuordnung.app.ReviewStore", factory)
         store_patch.start()
         self.addCleanup(store_patch.stop)
-        preference_patch = patch("zuordnung_app.ReviewSession.remember")
+        preference_patch = patch("egid_match.zuordnung.app.ReviewSession.remember")
         preference_patch.start()
         self.addCleanup(preference_patch.stop)
-        address_patch = patch("zuordnung_app.read_gwr_addresses", return_value={})
+        address_patch = patch("egid_match.zuordnung.app.read_gwr_addresses", return_value={})
         self.gwr_addresses = address_patch.start()
         self.addCleanup(address_patch.stop)
         self.app = create_app(self.folder / "preferences.json", self.dialogs, resume=False, geo_fetcher=self.fetch)
@@ -213,7 +213,7 @@ class AppTests(SyntheticMemory):
         self.post("/api/save", self.decision())
         prepared = prepare_rows(HEADERS, VALUES)[1]
         self.dialogs.choose.return_value = str(self.folder / "synthetic_import.xlsx")
-        with patch("zuordnung_store.read_review_excel", return_value=(HEADERS, prepared)):
+        with patch("egid_match.zuordnung.store.read_review_excel", return_value=(HEADERS, prepared)):
             response = self.post("/api/import")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["imported"], 3)
@@ -242,7 +242,7 @@ class AppTests(SyntheticMemory):
         target = self.folder / "synthetic_export.xlsx"
         self.dialogs.choose.return_value = str(target)
         captured = []
-        with patch("zuordnung_store.Workbook.save", autospec=True, side_effect=lambda workbook, path: captured.append((workbook, path))), patch("zuordnung_store.load_workbook", side_effect=AssertionError("Export darf keinen Excel-Import auslösen")):
+        with patch("egid_match.zuordnung.store.Workbook.save", autospec=True, side_effect=lambda workbook, path: captured.append((workbook, path))), patch("egid_match.zuordnung.store.load_workbook", side_effect=AssertionError("Export darf keinen Excel-Import auslösen")):
             response = self.post("/api/export")
         self.assertEqual(response.status_code, 200)
         workbook, path = captured[0]
@@ -322,8 +322,12 @@ class AppTests(SyntheticMemory):
         self.assertTrue(self.client.get("/api/state").json["active"])
 
     def test_import_has_no_database_network_or_browser_side_effects(self):
-        with patch.object(sqlite3, "connect") as connection, patch("webbrowser.open") as browser, patch("zuordnung_geo.fetch_json") as network:
-            runpy.run_path(str(ROOT / "zuordnung_app.py"), run_name="synthetic_import_only")
+        with patch.object(sqlite3, "connect") as connection, patch("webbrowser.open") as browser, patch("egid_match.zuordnung.geo.fetch_json") as network:
+            name = "egid_match.zuordnung.synthetic_import_only"
+            spec = importlib.util.spec_from_file_location(name, ROOT / "src" / "egid_match" / "zuordnung" / "app.py")
+            module = importlib.util.module_from_spec(spec)
+            with patch.dict(sys.modules, {name: module}):
+                spec.loader.exec_module(module)
         connection.assert_not_called()
         browser.assert_not_called()
         network.assert_not_called()
@@ -448,7 +452,7 @@ class AppTests(SyntheticMemory):
                 raise TimeoutError("Synthetischer Parzellenausfall")
             return {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 101, "gstat": 1004}, position)]}
         self.fetch.side_effect = fetch
-        with patch("zuordnung_geo_transport.time.sleep"):
+        with patch("egid_match.zuordnung.geo_transport.time.sleep"):
             response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["sources"]["parcels"]["code"], "unreachable")

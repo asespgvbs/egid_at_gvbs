@@ -10,12 +10,12 @@ from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 from test_zuordnung_store import feature, geo_config
-from zuordnung_geo import DEFAULTS, GeoBS, cached_context
-from zuordnung_geometrie import GeometryError, geometry_relation, normalize_geometry, point_location, validate_geometry
-from zuordnung_geo_transport import SourceClient, SourceError, fetch_json
+from egid_match.zuordnung.geo import DEFAULTS, GeoBS, cached_context
+from egid_match.zuordnung.geometrie import GeometryError, geometry_relation, normalize_geometry, point_location, validate_geometry
+from egid_match.zuordnung.geo_transport import SourceClient, SourceError, fetch_json
 
 
 def square(x=0, y=0, size=10):
@@ -113,7 +113,7 @@ class GeometryTests(unittest.TestCase):
     def test_duplicate_vertices_cannot_bypass_resource_limit(self):
         geometry = square()
         geometry["coordinates"][0].insert(1, [0, 0])
-        with patch("zuordnung_geometrie.MAX_VERTICES", 5), self.assertRaises(GeometryError) as error:
+        with patch("egid_match.zuordnung.geometrie.MAX_VERTICES", 5), self.assertRaises(GeometryError) as error:
             normalize_geometry(geometry, parcel=True)
         self.assertEqual(error.exception.code, "incomplete")
 
@@ -157,12 +157,12 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(error.exception.code, "invalid")
 
     def test_geometry_resource_limit_is_incomplete(self):
-        with patch("zuordnung_geometrie.MAX_VERTICES", 3), self.assertRaises(GeometryError) as error:
+        with patch("egid_match.zuordnung.geometrie.MAX_VERTICES", 3), self.assertRaises(GeometryError) as error:
             validate_geometry(square(), parcel=True)
         self.assertEqual(error.exception.code, "incomplete")
 
     def test_geometry_work_obeys_context_deadline(self):
-        with patch("zuordnung_geometrie.time.monotonic", return_value=2), self.assertRaises(GeometryError) as error:
+        with patch("egid_match.zuordnung.geometrie.time.monotonic", return_value=2), self.assertRaises(GeometryError) as error:
             validate_geometry(square(), parcel=True, deadline=1)
         self.assertEqual(error.exception.code, "incomplete")
 
@@ -194,7 +194,7 @@ class TransportTests(unittest.TestCase):
                 def fetch(url):
                     counter[0] += 1
                     return collection(parcel(), links=[{"rel": "next", "href": url if loop else next_page(url, counter[0])}])
-                with patch("zuordnung_geo_transport.MAX_PAGES", 2), self.assertRaises(SourceError) as error:
+                with patch("egid_match.zuordnung.geo_transport.MAX_PAGES", 2), self.assertRaises(SourceError) as error:
                     GeoBS(geo_config(), fetch).features("parcel", "egrid", "CH-SYNTHETIC-1")
                 self.assertEqual(error.exception.code, "incomplete")
                 self.assertTrue(error.exception.partial)
@@ -219,17 +219,17 @@ class TransportTests(unittest.TestCase):
     def test_timeout_invalid_answer_and_true_empty_are_distinct(self):
         cases = [(TimeoutError("synthetisch"), "unreachable"), ("HTML statt GeoJSON", "invalid"), (collection(), "empty")]
         for response, expected in cases:
-            with self.subTest(expected=expected), patch("zuordnung_geo_transport.time.sleep"):
+            with self.subTest(expected=expected), patch("egid_match.zuordnung.geo_transport.time.sleep"):
                 fetch = Mock(side_effect=response) if isinstance(response, Exception) else Mock(return_value=response)
                 value = GeoBS(geo_config(), fetch).context(["CH-SYNTHETIC-1"], [])
                 self.assertEqual(value["sources"]["parcels"]["code"], expected)
                 self.assertEqual(fetch.call_count, 4 if expected == "unreachable" else 2)
 
     def test_time_and_response_limits_do_not_claim_completeness(self):
-        with patch("zuordnung_geo_transport.MAX_TOTAL_BYTES", 20), self.assertRaises(SourceError) as error:
+        with patch("egid_match.zuordnung.geo_transport.MAX_TOTAL_BYTES", 20), self.assertRaises(SourceError) as error:
             GeoBS(geo_config(), Mock(return_value=collection(parcel()))).features("parcel", "egrid", "CH-SYNTHETIC-1")
         self.assertEqual(error.exception.code, "incomplete")
-        with patch("zuordnung_geo_transport.time.monotonic", side_effect=[0, 0, 46]), self.assertRaises(SourceError) as error:
+        with patch("egid_match.zuordnung.geo_transport.time.monotonic", side_effect=[0, 0, 46]), self.assertRaises(SourceError) as error:
             GeoBS(geo_config(), Mock(return_value=collection())).features("parcel", "egrid", "CH-SYNTHETIC-1")
         self.assertEqual(error.exception.code, "incomplete")
 
@@ -259,7 +259,7 @@ class TransportTests(unittest.TestCase):
         manager.__exit__ = Mock(return_value=False)
         opener = Mock()
         opener.open.return_value = manager
-        with patch("zuordnung_geo_transport.build_opener", return_value=opener), self.assertRaises(SourceError) as error:
+        with patch("egid_match.zuordnung.geo_transport.build_opener", return_value=opener), self.assertRaises(SourceError) as error:
             fetch_json("https://synthetic.geo.bs.ch/wms")
         self.assertEqual(error.exception.code, "invalid")
         response.read.assert_not_called()

@@ -4,7 +4,7 @@
 
 ```powershell
 cd C:\dev\repos\egid_match
-.\.venv\Scripts\python.exe zuordnung_app.py
+.\.venv\Scripts\python.exe -m egid_match.zuordnung
 ```
 
 Das Programm öffnet `http://127.0.0.1:8765` im Standardbrowser. Das Terminal muss
@@ -19,7 +19,7 @@ Leaflet 1.9.4 und sein Stylesheet werden erst vom Browser über unpkg.com gelade
 die GeoBS-Grundkarte lädt öffentliche Kacheln. Für die Karte ist Internet nötig.
 Die Zuordnung und der Excel-Export benötigen keine Geodatenverbindung.
 
-Die bestehenden Programme `gvbsid_matching.py` und `egid_abdeckung.py` bleiben
+Die bestehenden Programme `src/egid_match/matching.py` und `src/egid_match/abdeckung.py` bleiben
 unverändert und unabhängig vom Zuordnungswerkzeug.
 
 ## Datenbank und Schritt 2
@@ -90,7 +90,7 @@ stillschweigend verworfen. Der Fortschritt zählt GVBSIDs, nicht Parzellen.
 
 Die WMTS-Grundkarten bleiben reine Bildquellen. Parzellenpolygone kommen aus
 amtlichen GeoBS-Vektordiensten. EGID-Punkte kommen unabhängig davon aus
-der öffentlichen GWR-Publikation 100230. Profile stehen fest in `zuordnung_quellen.py`; der
+der öffentlichen GWR-Publikation 100230. Profile stehen fest in `src/egid_match/zuordnung/quellen.py`; der
 bisherige GeoBS-Dienste-Button und sein Dialog entfallen.
 
 Nach Schritt 2 lädt die Karte Gebäudepunkte automatisch über die öffentliche
