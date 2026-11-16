@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GVBSID · EGID Zuordnung</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/static/zuordnung.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" referrerpolicy="no-referrer" defer></script>
+  <script id="review-config" type="application/json">__REVIEW_CONFIG__</script>
+  <script src="/static/egid_punkte.js" defer></script>
+  <script src="/static/zuordnung.js" defer></script>
+</head>
+<body>
+  <button id="top-panel-trigger" type="button" aria-controls="top-panel" aria-expanded="false" title="Obere Bedienleiste einblenden" hidden><span class="sr-only">Obere Bedienleiste einblenden</span></button>
+  <div id="top-panel">
+  <header>
+    <div class="brand"><span class="brand-icon">↔</span><div><strong>GVBSID · EGID</strong><span>Manuelle Zuordnung</span></div></div>
+    <div id="progress" class="progress" aria-live="polite">Noch keine Daten geladen</div>
+  </header>
+  <section class="setup" aria-label="Einrichtung">
+    <div class="step"><span class="step-number">1</span><div><strong>Zuordnungsdatenbank</strong><div class="button-row"><button id="select-db">Datenbank auswählen</button><button id="new-db" class="secondary">Neue erstellen</button></div><small id="database-path">Keine Datenbank ausgewählt</small></div></div>
+    <div class="step"><span class="step-number">2</span><div><strong>Prüffälle bereitstellen</strong><div class="button-row"><button id="import" disabled>Excel laden</button><button id="activate" class="secondary" disabled>Gespeicherte Daten aktivieren</button></div><small>Excel-Blatt: review_address_suffix</small></div></div>
+  </section>
+  <nav class="toolbar" aria-label="Bearbeitung">
+    <form id="search-form"><label class="sr-only" for="search">GVBSID eingeben</label><input id="search" placeholder="GVBSID eingeben" autocomplete="off" disabled><button id="search-button" disabled>Bearbeiten</button></form>
+    <button id="export" class="secondary" disabled>Gesamte Zuteilung als Excel exportieren</button>
+  </nav>
+  <div id="message" class="message" role="status" hidden></div>
+  </div>
+  <main id="workspace">
+    <section id="left-pane" class="left-pane" aria-label="GVBSID-Zuordnung">
+      <div class="case-heading"><div><span class="eyebrow">ZUORDNUNG</span><h1 id="case-title">Prüffälle laden</h1></div><span id="queue-position" class="badge">Gesperrt</span></div>
+      <div id="queue-bar"><label for="queue">Warteschlange</label><select id="queue" disabled><option>Noch keine Daten geladen</option></select></div>
+      <p id="empty-note" class="empty-note">Zuerst eine Datenbank auswählen. Danach Excel laden oder gespeicherte Daten bewusst aktivieren.</p>
+      <div id="case-content" hidden>
+        <div class="case-meta"><strong>EGRID</strong><span id="egrids"></span><span id="dirty" hidden>Nicht gespeicherte Änderungen</span></div>
+        <p class="hint">Checkboxen ordnen zu. Details zur GVBSID erscheinen beim Darüberfahren oder Antippen. Kommentare lassen sich unterhalb der GVBSID aufklappen. Ein Klick auf eine EGID hebt sie auf der Karte hervor.</p>
+        <div id="matrix" class="matrix-wrap"></div>
+      </div>
+      <footer class="case-actions"><button id="previous" class="secondary" disabled>← Zurück</button><button id="save" disabled>Entscheidung speichern</button><button id="next" class="secondary" disabled>Weiter →</button></footer>
+    </section>
+    <div id="divider" role="separator" aria-label="Breite der Zuordnung ändern" aria-orientation="vertical" aria-valuenow="50" tabindex="0"></div>
+    <section class="map-pane" aria-label="GeoBS-Karte">
+      <div id="map"><div class="map-placeholder">Parzelle und EGID gemeinsam prüfen<span>Die Karte wird nach dem Laden der Prüffälle freigeschaltet.</span></div></div>
+      <div id="egid-details" class="map-details">Keine EGID ausgewählt.</div>
+    </section>
+  </main>
+
+</body>
+</html>

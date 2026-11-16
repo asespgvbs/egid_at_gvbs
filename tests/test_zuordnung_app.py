@@ -1,0 +1,452 @@
+"""Lokale HTTP-Tests mit synthetischen Daten und vollständig ersetzten Geodiensten."""
+
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+import io
+import json
+import runpy
+import sqlite3
+import sys
+from types import SimpleNamespace
+from urllib.parse import urlencode
+from unittest.mock import Mock, patch
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+from test_zuordnung_store import HEADERS, VALUES, SyntheticMemory, feature, geo_config
+from zuordnung_app import NativeDialogs, create_app, request_handler
+from zuordnung_store import ReviewError, ReviewStore, prepare_rows
+
+
+class MemorySocket:
+    def __init__(self, request):
+        self.input = io.BytesIO(request)
+        self.output = io.BytesIO()
+
+    def makefile(self, *arguments):
+        return self.input
+
+    def sendall(self, payload):
+        self.output.write(payload)
+
+
+class LocalClient:
+    """Den echten HTTP-Handler ohne Serverstart oder Netzwerk im Speicher prüfen."""
+    def __init__(self, app):
+        self.app = app
+
+    def request(self, method, target, json_value=None, headers=None, query_string=None):
+        if query_string:
+            target += "?" + urlencode(query_string)
+        payload = json.dumps(json_value).encode() if json_value is not None else b""
+        actual_headers = {"Host": "localhost", "Content-Length": str(len(payload)), **(headers or {})}
+        text = f"{method} {target} HTTP/1.0\r\n" + "".join(f"{key}: {value}\r\n" for key, value in actual_headers.items())
+        socket = MemorySocket(text.encode() + b"\r\n" + payload)
+        request_handler(self.app)(socket, ("127.0.0.1", 12345), SimpleNamespace())
+        head, body = socket.output.getvalue().split(b"\r\n\r\n", 1)
+        lines = head.decode().split("\r\n")
+        response_headers = dict(line.split(": ", 1) for line in lines[1:])
+        content = body.decode("utf-8")
+        return SimpleNamespace(status_code=int(lines[0].split()[1]), text=content,
+                               json=json.loads(content) if "application/json" in response_headers.get("Content-Type", "") else None,
+                               headers=response_headers)
+
+    def get(self, target, **kwargs):
+        return self.request("GET", target, **kwargs)
+
+    def post(self, target, json=None, **kwargs):
+        return self.request("POST", target, json_value=json, **kwargs)
+
+
+class AppTests(SyntheticMemory):
+    def setUp(self):
+        super().setUp()
+        self.dialogs = Mock()
+        self.fetch = Mock(side_effect=AssertionError("Kein echter Netzwerkzugriff in Tests"))
+        self.database = self.store()
+        def find_store(path):
+            if Path(path).resolve() != self.database.path:
+                raise OSError("Synthetische Datenbank fehlt")
+            return self.database
+        factory = Mock(side_effect=find_store)
+        factory.create.side_effect = FileExistsError
+        store_patch = patch("zuordnung_app.ReviewStore", factory)
+        store_patch.start()
+        self.addCleanup(store_patch.stop)
+        preference_patch = patch("zuordnung_app.ReviewSession.remember")
+        preference_patch.start()
+        self.addCleanup(preference_patch.stop)
+        address_patch = patch("zuordnung_app.read_gwr_addresses", return_value={})
+        self.gwr_addresses = address_patch.start()
+        self.addCleanup(address_patch.stop)
+        self.app = create_app(self.folder / "preferences.json", self.dialogs, resume=False, geo_fetcher=self.fetch)
+        self.app.token = "synthetic-local-test-token"
+        self.client = LocalClient(self.app)
+        self.headers = {"X-Review-Token": "synthetic-local-test-token"}
+
+    def post(self, path, data=None, **kwargs):
+        return self.client.post(path, json=data if data is not None else {}, headers=self.headers, **kwargs)
+
+    def select(self, activate=False):
+        self.dialogs.choose.return_value = str(self.database.path)
+        response = self.post("/api/database/select")
+        self.assertEqual(response.status_code, 200)
+        if activate:
+            self.assertEqual(self.post("/api/activate").status_code, 200)
+        return response.json
+
+    def decision(self, status="Abgeschlossen", assigned=None, version=1, gvbsid="SYNTHETIC-1"):
+        return {"selected": "SYNTHETIC-1", "decisions": [{"gvbsid": gvbsid, "version": version,
+                "status": status, "assigned": assigned if assigned is not None else ["101", "102"], "comment": "Synthetischer Kommentar"}]}
+
+    def test_two_stage_gating_and_existing_data_require_explicit_activation(self):
+        for path, method in (("/api/queue", "get"), ("/api/import", "post"), ("/api/save", "post"), ("/api/export", "post"), ("/api/geo", "post")):
+            response = self.client.get(path) if method == "get" else self.post(path)
+            self.assertEqual(response.status_code, 400, path)
+        self.dialogs.choose.assert_not_called()
+        selected = self.select()
+        self.assertFalse(selected["active"])
+        self.assertEqual(selected["progress"]["total"], 3)
+        self.assertEqual(self.client.get("/api/queue").status_code, 400)
+        self.post("/api/activate")
+        self.assertEqual(len(self.client.get("/api/queue").json["records"]), 3)
+
+    def test_status_queue_search_and_reopening_completed_cases(self):
+        self.select(activate=True)
+        response = self.post("/api/save", self.decision())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["progress"]["completed"], 1)
+        self.assertNotIn("SYNTHETIC-1", [row["gvbsid"] for row in self.client.get("/api/queue").json["records"]])
+        reopened = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual(reopened["records"][0]["assigned"], ["101", "102"])
+        self.assertEqual(reopened["records"][0]["status"], "Abgeschlossen")
+        self.assertEqual(self.post("/api/save", self.decision("Unklar", ["102"], version=2)).status_code, 200)
+        self.assertEqual(len(self.client.get("/api/queue").json["records"]), 3)
+        self.assertEqual(self.post("/api/save", self.decision("Keine Zuordnung möglich", [], version=3)).status_code, 200)
+        self.assertEqual(self.client.get("/api/state").json["progress"]["impossible"], 1)
+
+    def test_same_parcel_group_has_independent_statuses(self):
+        self.select(activate=True)
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual([row["gvbsid"] for row in case["records"]], ["SYNTHETIC-1", "SYNTHETIC-2"])
+        self.assertEqual(case["records"][0]["purpose"], "Synthetisches Wohnhaus")
+        self.assertEqual(case["egids"], ["101", "102"])
+        self.assertEqual(self.post("/api/save", self.decision()).status_code, 200)
+        self.assertEqual(self.database.records()[1]["status"], "Offen")
+
+    def test_stale_batch_and_unknown_egid_are_rejected_without_partial_write(self):
+        self.select(activate=True)
+        payload = self.decision()
+        payload["decisions"].append({"gvbsid": "SYNTHETIC-2", "version": 999, "status": "Unklar", "assigned": ["102"]})
+        self.assertEqual(self.post("/api/save", payload).status_code, 409)
+        self.assertTrue(all(row["version"] == 1 for row in self.database.records()))
+        self.assertEqual(self.post("/api/save", self.decision(assigned=["999"])).status_code, 400)
+        self.assertEqual(self.database.records()[0]["assigned"], [])
+
+    def test_records_outside_current_parcel_cannot_be_saved(self):
+        self.select(activate=True)
+        self.assertEqual(self.post("/api/save", self.decision(gvbsid="SYNTHETIC-3", assigned=["101"])).status_code, 400)
+
+    def test_reimport_preserves_decisions_and_activates_dataset(self):
+        self.select(activate=True)
+        self.post("/api/save", self.decision())
+        prepared = prepare_rows(HEADERS, VALUES)[1]
+        self.dialogs.choose.return_value = str(self.folder / "synthetic_import.xlsx")
+        with patch("zuordnung_store.read_review_excel", return_value=(HEADERS, prepared)):
+            response = self.post("/api/import")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["imported"], 3)
+        self.assertEqual(self.database.progress()["total"], 3)
+        self.assertEqual(self.database.records()[0]["assigned"], ["101", "102"])
+
+    def test_last_database_is_remembered_but_next_start_requires_step_two(self):
+        self.select(activate=True)
+        with patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", return_value=json.dumps({"database": str(self.database.path), "geo": {}})):
+            resumed = create_app(self.folder / "preferences.json", self.dialogs, geo_fetcher=self.fetch)
+        state = LocalClient(resumed).get("/api/state").json
+        self.assertEqual(state["database"], str(self.database.path))
+        self.assertEqual(state["progress"]["total"], 3)
+        self.assertFalse(state["active"])
+
+    def test_new_database_does_not_overwrite_existing_file(self):
+        self.dialogs.choose.return_value = str(self.database.path)
+        response = self.post("/api/database/create")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("nicht ueberschrieben", response.json["error"])
+        self.assertEqual(self.database.progress()["total"], 3)
+
+    def test_export_uses_saved_database_and_includes_all_cases(self):
+        self.select(activate=True)
+        self.post("/api/save", self.decision())
+        target = self.folder / "synthetic_export.xlsx"
+        self.dialogs.choose.return_value = str(target)
+        captured = []
+        with patch("zuordnung_store.Workbook.save", autospec=True, side_effect=lambda workbook, path: captured.append((workbook, path))), patch("zuordnung_store.load_workbook", side_effect=AssertionError("Export darf keinen Excel-Import auslösen")):
+            response = self.post("/api/export")
+        self.assertEqual(response.status_code, 200)
+        workbook, path = captured[0]
+        self.assertEqual(path, target)
+        self.assertEqual(workbook.worksheets[0].max_row, 4)
+        self.assertEqual(workbook["Zuordnungen"].max_row, 3)
+        self.assertEqual(workbook["Offene Fälle"].max_row, 3)
+
+    def test_geodata_loading_alone_does_not_save_assignments(self):
+        self.select(activate=True)
+        self.app.session.config.update(parcel_url="", building_url="")
+        response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json["warnings"])
+        self.fetch.assert_not_called()
+        self.assertTrue(all(row["version"] == 1 and not row["assigned"] for row in self.database.records()))
+
+    def test_additional_verified_parcel_egid_becomes_assignable(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        self.assertEqual(self.post("/api/geo", {"selected": "SYNTHETIC-1"}).status_code, 200)
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertIn("999", case["egids"])
+        self.assertEqual(self.post("/api/save", self.decision(assigned=["999"])).status_code, 200)
+        self.assertEqual(self.database.records()[0]["assigned"], ["999"])
+
+    def test_stale_geodata_cannot_be_activated_after_import_or_configuration_change(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        def synthetic_fetch(url):
+            self.app.session.revision += 1
+            return {"type": "FeatureCollection", "features": []}
+        self.fetch.side_effect = synthetic_fetch
+        self.assertEqual(self.post("/api/geo", {"selected": "SYNTHETIC-1"}).status_code, 409)
+        self.assertEqual(self.app.session.geo_cache, {})
+
+    def test_expired_cached_extra_egid_is_not_assignable(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        self.assertEqual(self.post("/api/geo", {"selected": "SYNTHETIC-1"}).status_code, 200)
+        cached = self.app.session.geo_cache["SYNTHETIC-1"]
+        for source in cached["sources"].values():
+            source["fetched_at"] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertNotIn("999", case["egids"])
+        self.assertTrue(case["geo"]["sources"]["buildings"]["stale"])
+        self.assertEqual(self.post("/api/save", self.decision(assigned=["999"])).status_code, 400)
+
+    def test_older_parallel_map_request_cannot_overwrite_newer_request(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        def fetch(url):
+            self.app.session.geo_requests["SYNTHETIC-1"] += 1
+            return {"type": "FeatureCollection", "features": []}
+        self.fetch.side_effect = fetch
+        self.assertEqual(self.post("/api/geo", {"selected": "SYNTHETIC-1"}).status_code, 409)
+        self.assertEqual(self.app.session.geo_cache, {})
+
+    def test_local_origin_and_session_token_are_required(self):
+        self.assertEqual(self.client.post("/api/database/select", json={}).status_code, 403)
+        self.assertEqual(self.client.post("/api/database/select", json={}, headers={**self.headers, "Origin": "https://synthetic.example"}).status_code, 403)
+        self.assertEqual(self.client.get("/api/state", headers={"Host": "synthetic.example"}).status_code, 403)
+        self.dialogs.choose.assert_not_called()
+
+    def test_cancel_does_not_change_active_database(self):
+        self.select(activate=True)
+        self.dialogs.choose.return_value = ""
+        self.assertTrue(self.post("/api/database/select").json["cancelled"])
+        self.assertTrue(self.client.get("/api/state").json["active"])
+
+    def test_import_has_no_database_network_or_browser_side_effects(self):
+        with patch.object(sqlite3, "connect") as connection, patch("webbrowser.open") as browser, patch("zuordnung_geo.fetch_json") as network:
+            runpy.run_path(str(ROOT / "zuordnung_app.py"), run_name="synthetic_import_only")
+        connection.assert_not_called()
+        browser.assert_not_called()
+        network.assert_not_called()
+
+    def test_page_shows_disabled_features_and_purpose_matrix_container(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="import" disabled', response.text)
+        self.assertIn('id="save" disabled', response.text)
+        self.assertIn('id="matrix"', response.text)
+        self.assertNotIn('id="geo-settings"', response.text)
+        self.assertNotIn('id="geo-dialog"', response.text)
+        self.assertNotIn('id="import-gwr"', response.text)
+        self.assertNotIn('id="gwr-info"', response.text)
+        self.assertNotIn("GWR-Bestand laden", response.text)
+        self.assertNotIn('class="map-toolbar"', response.text)
+        for identifier in ("active-parcel", "reload-map", "building-status", "pick-parcel"):
+            self.assertNotIn(f'id="{identifier}"', response.text)
+        self.assertIn("Gesamte Zuteilung als Excel exportieren", response.text)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_removed_geodata_configuration_endpoint_is_not_available(self):
+        self.select(activate=True)
+        self.assertEqual(self.post("/api/geo/config", geo_config()).status_code, 404)
+
+    def test_native_windows_dialogs_are_distinct_and_always_destroyed(self):
+        root = Mock()
+        with patch("tkinter.Tk", return_value=root), patch("tkinter.filedialog.askopenfilename", return_value="synthetic.sqlite") as opened, patch("tkinter.filedialog.asksaveasfilename", return_value="synthetic_new.sqlite") as saved:
+            dialogs = NativeDialogs()
+            self.assertEqual(dialogs.choose("database"), "synthetic.sqlite")
+            self.assertEqual(dialogs.choose("create"), "synthetic_new.sqlite")
+        opened.assert_called_once()
+        saved.assert_called_once()
+        self.assertTrue(saved.call_args.kwargs["confirmoverwrite"])
+        self.assertEqual(root.destroy.call_count, 2)
+
+    def test_missing_remembered_database_requires_new_selection(self):
+        with patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", return_value=json.dumps({"database": "synthetic_missing.sqlite", "geo": {}})):
+            app = create_app(self.folder / "preferences.json", self.dialogs, geo_fetcher=self.fetch)
+        response = LocalClient(app).get("/api/state").json
+        self.assertIsNone(response["database"])
+        self.assertFalse(response["active"])
+        self.assertTrue(response["warning"])
+
+    def test_removed_gwr_import_endpoint_never_opens_a_file_dialog(self):
+        self.assertEqual(self.post("/api/gwr/import").status_code, 404)
+        self.dialogs.choose.assert_not_called()
+        self.select(activate=True)
+        self.dialogs.choose.reset_mock()
+        before = self.database.records()
+        self.assertEqual(self.post("/api/gwr/import").status_code, 404)
+        self.dialogs.choose.assert_not_called()
+        self.fetch.assert_not_called()
+        self.assertEqual(self.database.records(), before)
+        self.assertNotIn("gwr", self.client.get("/api/state").json)
+
+    def test_legacy_snapshot_is_ignored_and_preserved_while_public_source_is_used(self):
+        # Nur selbst erzeugte Altstruktur in SQLite :memory:. Ungültiges JSON
+        # stellt sicher, dass alte Snapshot-Inhalte auch nicht dekodiert werden.
+        connection = self.database.memory
+        connection.execute("CREATE TABLE review_gwr (egid TEXT PRIMARY KEY, building TEXT NOT NULL)")
+        connection.execute("INSERT INTO review_gwr VALUES ('555', 'synthetic legacy payload')")
+        connection.execute("INSERT INTO review_meta VALUES ('gwr', 'synthetic legacy metadata')")
+        connection.commit()
+        def block_snapshot_access(action, table, column, database, trigger):
+            return sqlite3.SQLITE_DENY if table == "review_gwr" else sqlite3.SQLITE_OK
+        connection.set_authorizer(block_snapshot_access)
+        try:
+            self.select(activate=True)
+            self.assertNotIn("gwr", self.client.get("/api/state").json)
+            initial = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+            self.assertIsNone(initial["geo"])
+            self.assertNotIn("555", initial["egids"])
+            self.app.session.config = geo_config()
+            self.fetch.side_effect = [
+                {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+                {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+            ]
+            response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(self.fetch.call_count, 2)
+            self.assertEqual([row["egid"] for row in response.json["buildings"]], ["999"])
+            self.assertEqual(self.post("/api/save", self.decision(assigned=["999"])).status_code, 200)
+            self.select(activate=True)
+            self.assertEqual(self.database.records()[0]["assigned"], ["999"])
+        finally:
+            connection.set_authorizer(None)
+        self.assertEqual([tuple(row) for row in connection.execute("SELECT * FROM review_gwr")], [("555", "synthetic legacy payload")])
+        self.assertEqual(connection.execute("SELECT value FROM review_meta WHERE key='gwr'").fetchone()[0], "synthetic legacy metadata")
+
+    def test_map_always_uses_gstat_1004_even_when_request_overrides_filter(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        for statuses in (None, ["1004"], ["1001"], ["1007"], [], ["1004", "1001"], "all"):
+            self.fetch.side_effect = [
+                {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+                {"type": "FeatureCollection", "features": [
+                    feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004}),
+                    feature({"egrid": "CH-SYNTHETIC-1", "egid": 888, "gstat": 1001}),
+                    feature({"egrid": "CH-SYNTHETIC-1", "egid": 777, "gstat": 1007}),
+                    feature({"egrid": "CH-SYNTHETIC-1", "egid": 666, "gstat": ""}),
+                ]},
+            ]
+            with self.subTest(statuses=statuses):
+                payload = {"selected": "SYNTHETIC-1"}
+                if statuses is not None:
+                    payload["statuses"] = statuses
+                response = self.post("/api/geo", payload)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([row["egid"] for row in response.json["buildings"]], ["999"])
+                self.assertEqual(response.json["filters"]["gstat"], ["1004"])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertIn("999", case["egids"])
+        self.assertTrue({"888", "777", "666"}.isdisjoint(case["egids"]))
+
+    def test_parcel_service_failure_does_not_block_public_building_points(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        position = {"type": "Point", "coordinates": [7.55, 47.52]}
+        def fetch(url):
+            if "/parcels/items" in url:
+                raise TimeoutError("Synthetischer Parzellenausfall")
+            return {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 101, "gstat": 1004}, position)]}
+        self.fetch.side_effect = fetch
+        with patch("zuordnung_geo_transport.time.sleep"):
+            response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["sources"]["parcels"]["code"], "unreachable")
+        self.assertEqual(response.json["sources"]["buildings"]["code"], "complete")
+        self.assertEqual(response.json["buildings"][0]["geometry"], position)
+
+    def test_removed_gwr_dialog_kind_cannot_open_a_source_file(self):
+        root = Mock()
+        with patch("tkinter.Tk", return_value=root), patch("tkinter.filedialog.askopenfilename") as opened, patch("tkinter.filedialog.asksaveasfilename") as saved:
+            with self.assertRaises(ReviewError):
+                NativeDialogs().choose("gwr")
+        opened.assert_not_called()
+        saved.assert_not_called()
+        root.destroy.assert_called_once()
+
+    def test_map_uses_original_gwr_addresses_for_exact_egid_without_changing_decisions(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        self.app.session.gwr_path = self.folder / "synthetic-address-source.sqlite"
+        original = self.database.records()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        addresses = [["Teststrasse", "10a", "0000"], ["Seitengasse", "3.1", "0000"]]
+        self.gwr_addresses.return_value = {"999": addresses, "888": [["Fremder Testweg", "9", "0000"]]}
+        response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["buildings"][0]["addresses"], addresses)
+        self.assertEqual(response.json["gwr_address_status"]["code"], "complete")
+        self.gwr_addresses.assert_called_once_with(self.app.session.gwr_path, ["999"])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual(case["geo"]["buildings"][0]["addresses"], addresses)
+        self.assertEqual(self.database.records(), original)
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_unavailable_gwr_address_source_keeps_map_geometry_and_reports_reason(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        self.gwr_addresses.side_effect = ReviewError("Synthetische GWR-Adressquelle nicht verfügbar")
+        response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.json["buildings"][0]["geometry"])
+        self.assertEqual(response.json["buildings"][0]["addresses"], [])
+        self.assertEqual(response.json["gwr_address_status"]["code"], "unreachable")
+        self.assertIn("nicht verfügbar", response.json["gwr_address_status"]["message"])
+
+    def test_gwr_address_path_can_be_configured_without_opening_it(self):
+        path = self.folder / "synthetic-address-source.sqlite"
+        app = create_app(self.folder / "synthetic-preferences.json", self.dialogs, resume=False, gwr_path=path)
+        self.assertEqual(app.session.gwr_path, path)
+        self.gwr_addresses.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

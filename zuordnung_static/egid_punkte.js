@@ -1,0 +1,44 @@
+"use strict";
+
+// Reines Leaflet: GeoJSON bleibt [Longitude, Latitude], Leaflet übernimmt LatLng.
+globalThis.ReviewEgidPoints = {
+  tooltip(egid, addresses = []) {
+    const tooltip = document.createElement("span");
+    tooltip.className = "egid-tooltip";
+    const values = [...new Set(addresses.map(value => String(value).replace(/\s+/g, " ").trim()).filter(Boolean))];
+    tooltip.textContent = `EGID ${egid}\nGWR: ${values.join("; ") || "Adresse nicht verfügbar"}`;
+    return tooltip;
+  },
+
+  style(gstat, selected, zoom, needsReview = false) {
+    const colors = {1004: "#16796c", 1001: "#226db0", 1002: "#7763a1", 1003: "#cb8a12", 1005: "#bd5b3a", 1007: "#777777", 1008: "#5e668a"};
+    const radius = zoom < 15 ? 3 : zoom < 18 ? 5 : zoom < 20 ? 7 : 9;
+    return {radius: radius + (selected ? 3 : 0), color: selected ? "#ffbe00" : needsReview ? "#a94400" : "#173d45",
+      weight: selected ? 3 : 1.5, fillColor: colors[gstat] || "#465a78", fillOpacity: .95};
+  },
+
+  layer(L, features, {renderer, map, index, selected, onSelect, onPosition}) {
+    return L.geoJSON(features, {
+      pointToLayer: (feature, latlng) => {
+        const properties = feature.properties, egid = String(properties.egid);
+        const marker = L.circleMarker(latlng, {
+          ...this.style(properties.gstat, egid === selected, map.getZoom(), properties.needs_review), renderer
+        });
+        marker.reviewProperties = properties;
+        if (!index.has(egid)) index.set(egid, []);
+        index.get(egid).push(marker);
+        marker.bindTooltip(this.tooltip(egid, properties.addresses));
+        marker.on("click", () => onSelect(egid));
+        if (onPosition) onPosition(egid, latlng);
+        return marker;
+      }
+    });
+  },
+
+  update(index, selected, zoom) {
+    for (const [egid, markers] of index) for (const marker of markers) {
+      const properties = marker.reviewProperties;
+      marker.setStyle(this.style(properties.gstat, egid === selected, zoom, properties.needs_review));
+    }
+  }
+};
