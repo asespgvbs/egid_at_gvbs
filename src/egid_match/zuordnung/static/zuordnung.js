@@ -1,6 +1,8 @@
 "use strict";
 
-const token = JSON.parse(document.getElementById("review-config").textContent).token;
+const reviewConfig = JSON.parse(document.getElementById("review-config").textContent);
+const token = reviewConfig.token;
+const categoryColors = reviewConfig.category_colors || {};
 const $ = id => document.getElementById(id);
 let state = null, current = null, queue = [], dirty = new Set(), busy = false, generation = 0;
 let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new Map(), selectedEgid = null;
@@ -13,6 +15,35 @@ function node(tag, text, className) {
   if (text !== undefined) item.textContent = text;
   if (className) item.className = className;
   return item;
+}
+
+function recordCategory(record) {
+  const name = String(record?.raw?.["Matching-Kategorie"] || "").trim();
+  const hex = categoryColors[name];
+  const color = typeof hex === "string" && /^[a-f\d]{6}$/i.test(hex) ? "#" + hex : null;
+  const labels = {
+    review_address_suffix: "Adress-Suffix · Allgemeine Prüfung",
+    address_suffix_pair_lt4: "Adress-Suffix-Paar · Manuell prüfen",
+    address_suffix_pair_ge4: "Adress-Suffix-Paar · Automatisch zugeordnet",
+    review_suffix_single_building: "Ein Gebäude mit Adress-Suffix",
+  };
+  return {name, color, label: Object.hasOwn(labels, name) ? labels[name] : name || "Kategorie unbekannt"};
+}
+
+function paintCategory(element, category) {
+  element.classList.toggle("has-category", Boolean(category.color));
+  element.style.setProperty("--category-color", category.color || "#d9e2e6");
+  const rgb = category.color?.slice(1).match(/../g).map(part => parseInt(part, 16));
+  element.style.setProperty("--category-tint", rgb ? `rgba(${rgb.join(",")},0.15)` : "#fafcfd");
+}
+
+function renderCategoryTheme() {
+  const record = current?.records.find(item => item.gvbsid === current.selected);
+  const category = recordCategory(record), badge = $("case-category");
+  paintCategory($("left-pane"), category);
+  badge.textContent = category.label;
+  badge.title = category.name;
+  badge.hidden = !record;
 }
 
 function createTopPanel() {
@@ -139,6 +170,7 @@ function applyState(value) {
   }
   if (!value.active) {
     generation++; current = null; dirty.clear();
+    renderCategoryTheme();
     $("case-content").hidden = true; $("empty-note").hidden = false;
     $("empty-note").textContent = value.database ? "Schritt 2 bestätigen: Excel laden oder gespeicherte Daten aktivieren." : "Zuerst eine Datenbank auswählen oder neu erstellen.";
     $("case-title").textContent = "Prüffälle laden";
@@ -247,6 +279,7 @@ const recordInfo = createRecordInfo();
 
 function renderCase() {
   recordInfo.hide();
+  renderCategoryTheme();
   $("case-content").hidden = false; $("empty-note").hidden = true;
   $("case-title").textContent = `${current.selected} (GVBSID)`;
   $("egrids").textContent = current.egrids.join(", ") || "Keine verlässliche EGRID vorhanden";
@@ -267,12 +300,17 @@ function renderCase() {
   const body = node("tbody");
   for (const record of current.records) {
     const tr = node("tr"); if (["Abgeschlossen", "Keine Zuordnung möglich"].includes(record.status)) tr.className = "row-finished";
+    const category = recordCategory(record);
+    paintCategory(tr, category);
     const identity = node("td"), trigger = node("button", `${record.gvbsid} (GVBSID)`, "gvbsid-info");
     trigger.type = "button"; recordInfo.attach(trigger, record);
     const info = node("ul", undefined, "gvbs-info-list");
     info.append(node("li", `Adresse: ${String(record.address || "–").replace(/\s+/g, " ").trim()}`),
       node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`));
     identity.append(trigger, node("strong", "GVBS-Info:", "gvbs-info-title"), info);
+    const categoryLabel = node("span", category.label, "row-category-label");
+    categoryLabel.title = category.name;
+    identity.append(categoryLabel);
     tr.append(identity);
     for (const egid of current.egids) {
       const td = node("td"), checkbox = document.createElement("input");
@@ -310,6 +348,7 @@ async function openCase(gvbsid, check = true) {
 
 async function activate(value) {
   applyState(value); current = null; dirty.clear(); generation++;
+  renderCategoryTheme();
   $("case-content").hidden = true; clearMap(); await refreshQueue();
   if (queue.length) await openCase(queue[0].gvbsid, false);
   else {
@@ -474,7 +513,7 @@ $("save").addEventListener("click", () => action(async () => {
   const value = await api("/api/save", {selected, decisions}); dirty.clear(); applyState(value); await refreshQueue();
   if (queue.some(record => record.gvbsid === selected)) await openCase(selected, false);
   else if (queue.length) await openCase(queue[Math.min(Math.max(oldIndex, 0), queue.length - 1)].gvbsid, false);
-  else {current = null; generation++; $("case-content").hidden = true; $("empty-note").hidden = false; $("empty-note").textContent = "Alle Fälle bearbeitet. Abgeschlossene Fälle bleiben über die Suche erreichbar."; $("case-title").textContent = "Warteschlange abgeschlossen"; $("queue-position").textContent = "0 offen"; clearMap();}
+  else {current = null; generation++; renderCategoryTheme(); $("case-content").hidden = true; $("empty-note").hidden = false; $("empty-note").textContent = "Alle Fälle bearbeitet. Abgeschlossene Fälle bleiben über die Suche erreichbar."; $("case-title").textContent = "Warteschlange abgeschlossen"; $("queue-position").textContent = "0 offen"; clearMap();}
   message("Entscheidung gespeichert.");
 }));
 $("export").addEventListener("click", () => action(async () => {if (dirty.size && !window.confirm("Es gibt ungespeicherte Änderungen. Nur den gespeicherten Datenbankstand exportieren?")) return; const value = await api("/api/export", {}); if (!value.cancelled) message("Gesamte Zuteilung exportiert: " + value.path);}));

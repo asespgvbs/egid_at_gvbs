@@ -6,7 +6,9 @@ function runReviewUiTest(sources) {
   function check(value, message) {assertions++; if (!value) throw new Error(message);}
   class Element {
     constructor(tag = "div") {
-      this.tagName = tag.toUpperCase(); this.children = []; this.dataset = {}; this.attributes = {}; this.events = {}; this.style = {setProperty() {}}; this._text = "";
+      this.tagName = tag.toUpperCase(); this.children = []; this.dataset = {}; this.attributes = {}; this.events = {}; this._text = "";
+      const styles = new Map();
+      this.style = {setProperty(name, value) {styles.set(name, value);}, getPropertyValue(name) {return styles.get(name) || "";}};
       const classes = new Set();
       this.classList = {toggle(name, force) {if (force) classes.add(name); else classes.delete(name);}, contains(name) {return classes.has(name);}};
     }
@@ -24,7 +26,11 @@ function runReviewUiTest(sources) {
     }
   }
   const elements = Object.fromEntries([...sources["src/egid_match/zuordnung/templates/zuordnung.html"].matchAll(/\bid="([\w-]+)"/g)].map(match => [match[1], new Element()]));
-  elements["review-config"].textContent = '{"token":"synthetic-token"}';
+  elements["review-config"].textContent = JSON.stringify({token: "synthetic-token", category_colors: {
+    review_address_suffix: "FFF2CC", address_suffix_pair_lt4: "F4B183",
+    review_suffix_single_building: "E6C200", address_suffix_pair_ge4: "C4A484",
+    synthetic_invalid: "url(https://synthetic.invalid/colour)",
+  }});
   elements["case-content"].append(elements.matrix);
   const document = {body: new Element("body"), documentElement: new Element("html"), createElement: tag => new Element(tag), getElementById(id) {if (!elements[id]) throw new Error("Unbekannte DOM-ID"); return elements[id];}, addEventListener() {}};
   const window = {addEventListener() {}, setTimeout() {return 1;}, clearTimeout() {}, innerWidth: 1200, innerHeight: 800, requestAnimationFrame(callback) {callback();}};
@@ -50,10 +56,10 @@ function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"];
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,configure(value,view,layers){current=value;selectedEgid=null;state={database:'synthetic',active:true,progress:{total:1}};queue=[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,configure(value,view,layers){current=value;selectedEgid=null;state={database:'synthetic',active:true,progress:{total:1}};queue=[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
-    records: [{gvbsid: "SYNTHETIC-1", address: "GVBS-Testweg 1, 0000", purpose: "Synthetisches Wohnhaus", raw: {}, candidates: ["101"], suffix_candidates: ["102"], grids: ["CH-SYNTHETIC-1"], assigned: [], status: "Offen", comment: ""}],
+    records: [{gvbsid: "SYNTHETIC-1", address: "GVBS-Testweg 1, 0000", purpose: "Synthetisches Wohnhaus", raw: {"Matching-Kategorie": "review_address_suffix"}, candidates: ["101"], suffix_candidates: ["102"], grids: ["CH-SYNTHETIC-1"], assigned: [], status: "Offen", comment: ""}],
     geo: {parcels: [{key: "CH-SYNTHETIC-1", egrid: "CH-SYNTHETIC-1", geometry: {type: "Polygon", coordinates: [[[7.5,47.5],[7.6,47.5],[7.6,47.6],[7.5,47.5]]]}}], buildings: [
       {egid: "101", gstat: "1004", addresses: [["GWR-Testgasse", "9a", "0000"]], geometry: {type: "Point", coordinates: [7.55,47.52]}, relation: "Amtliche EGRID-Beziehung der Quelle", geometry_note: "Swisstopo-Näherung (nur Kartendarstellung, keine Grenzprüfung)", source_updated: "2020-01-01"},
       {egid: "102", gstat: "1004", addresses: [], geometry: {type: "Polygon", coordinates: [[[7.55,47.52],[7.56,47.52],[7.56,47.53],[7.55,47.52]]]}}
@@ -72,6 +78,8 @@ function runReviewUiTest(sources) {
   check(header.children[1].children[0].textContent === "101 (GWR)", "EGID als GWR kennzeichnen");
   check(header.children[1].children[1].textContent === "GWR-Testgasse 9a 0000", "Original-GWR-Adresse unter der EGID anzeigen");
   check(header.children[2].children[1].textContent === "GWR-Adresse nicht verfügbar", "GVBS-Adresse niemals als GWR-Ersatz anzeigen");
+  check(elements["left-pane"].style.getPropertyValue("--category-color") === "#FFF2CC", "Bearbeitungsbereich in der Farbe des ausgewählten Falls darstellen");
+  check(!elements["case-category"].hidden && elements["case-category"].textContent.includes("Allgemeine Prüfung"), "Kategorie zusätzlich als Text anzeigen");
   ui.renderGeo();
   check(layers.parcels.layers.length === 1 && layers.parcels.layers[0].options.pane === "parcel-boundaries", "Parzellengrenze in eigener Ebene darstellen");
   check(layers.mask.layers.length === 1 && layers.mask.layers[0].options.pane === "parcel-mask", "Abdunkelung getrennt von Grenzen und Gebäuden darstellen");
@@ -116,6 +124,29 @@ function runReviewUiTest(sources) {
   ui.configure(unavailable, map, layers);
   ui.renderGeo();
   check(elements["egid-details"].textContent.includes("Keine Parzellengrenze verfügbar.") && elements["egid-details"].textContent.includes("Synthetischer Geometriefehler"), "Fehlende Quellgeometrie im vorhandenen Detailfeld erklären");
+  for (const [category, colour] of [["address_suffix_pair_lt4", "#F4B183"], ["review_suffix_single_building", "#E6C200"], ["address_suffix_pair_ge4", "#C4A484"]]) {
+    ui.configure({...value, records: [{...value.records[0], raw: {"Matching-Kategorie": category}}]}, map, layers);
+    ui.renderCase();
+    check(elements["left-pane"].style.getPropertyValue("--category-color") === colour, "Fallwechsel übernimmt die neue Kategoriefarbe");
+    check(elements["case-category"].title === category, "Importierte Kategorie im Kategorienhinweis erhalten");
+  }
+  const mixed = {...value, selected: "SYNTHETIC-2", records: [
+    {...value.records[0], raw: {"Matching-Kategorie": "review_suffix_single_building"}},
+    {...value.records[0], gvbsid: "SYNTHETIC-2", raw: {"Matching-Kategorie": "address_suffix_pair_lt4"}},
+  ]};
+  ui.configure(mixed, map, layers); ui.renderCase();
+  check(elements["left-pane"].style.getPropertyValue("--category-color") === "#F4B183", "Bei gemischter Gruppe entscheidet die ausgewählte GVBSID über die Bereichsfarbe");
+  const mixedRows = elements.matrix.children[0].children[1].children;
+  check(mixedRows[0].style.getPropertyValue("--category-color") === "#E6C200" && mixedRows[1].style.getPropertyValue("--category-color") === "#F4B183", "Gruppierte Zeilen behalten jeweils ihre eigene Kategoriefarbe");
+  for (const category of [undefined, "synthetic_unknown", "synthetic_invalid", "__proto__"]) {
+    ui.configure({...value, records: [{...value.records[0], raw: {"Matching-Kategorie": category}}]}, map, layers);
+    ui.renderCase();
+    check(!elements["left-pane"].classList.contains("has-category"), "Fehlende oder unbekannte Kategorie neutral darstellen");
+    check(elements["left-pane"].style.getPropertyValue("--category-color") === "#d9e2e6", "Vorherige Kategoriefarbe beim Wechsel zu unbekannter Kategorie entfernen");
+  }
+  ui.configure(value, map, layers); ui.renderCase();
+  ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, impossible: 0, remaining: 1}});
+  check(elements["case-category"].hidden && !elements["left-pane"].classList.contains("has-category"), "Beim Datenbankwechsel die Kategoriefarbe und Beschriftung zurücksetzen");
   check(apiCalls === 0, "Der synthetische Test ruft keinen Dienst auf");
   return assertions;
 }

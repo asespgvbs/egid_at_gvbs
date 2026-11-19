@@ -20,7 +20,7 @@ from .geo import DEFAULTS, GeoBS, cached_context
 from .gwr import read_gwr_addresses
 from .store import FINISHED, ReviewStore, STATUSES
 from ..common import ConflictError, ReviewError
-from ..matching import DEFAULT_GWR_DB
+from ..matching import CATEGORY_COLORS, DEFAULT_GWR_DB
 
 
 class NativeDialogs:
@@ -167,7 +167,9 @@ class ReviewApplication:
             if method == "GET" and path == "/":
                 template = (self.root / "templates" / "zuordnung.html").read_text(encoding="utf-8")
                 # Der Token enthaelt nur URL-sichere ASCII-Zeichen.
-                template = template.replace("__REVIEW_CONFIG__", json.dumps({"token": self.token}))
+                template = template.replace("__REVIEW_CONFIG__", json.dumps({
+                    "token": self.token, "category_colors": CATEGORY_COLORS,
+                }))
                 return Response(200, template.encode("utf-8"), "text/html; charset=utf-8")
             if method == "GET" and path in ("/static/zuordnung.css", "/static/zuordnung.js", "/static/egid_punkte.js"):
                 name = path.rsplit("/", 1)[1]

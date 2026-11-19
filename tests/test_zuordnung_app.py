@@ -349,6 +349,16 @@ class AppTests(SyntheticMemory):
         self.assertIn("Gesamte Zuteilung als Excel exportieren", response.text)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
+    def test_page_uses_matching_palette_for_category_theme(self):
+        from egid_match.matching import CATEGORY_COLORS
+        response = self.client.get("/")
+        config_text = response.text.split('<script id="review-config" type="application/json">', 1)[1].split("</script>", 1)[0]
+        config = json.loads(config_text)
+        self.assertEqual(config["category_colors"], CATEGORY_COLORS)
+        self.assertEqual(config["category_colors"]["review_suffix_single_building"], "E6C200")
+        self.assertEqual(config["category_colors"]["address_suffix_pair_ge4"], "C4A484")
+        self.assertIn('id="case-category"', response.text)
+
     def test_removed_geodata_configuration_endpoint_is_not_available(self):
         self.select(activate=True)
         self.assertEqual(self.post("/api/geo/config", geo_config()).status_code, 404)

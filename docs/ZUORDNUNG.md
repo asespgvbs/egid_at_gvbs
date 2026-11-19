@@ -70,6 +70,15 @@ eine separate neue Datenbank angelegt werden.
 
 ## Bearbeiten
 
+Der linke Bearbeitungsbereich übernimmt die Kategoriefarbe der aktuell
+ausgewählten GVBSID aus der Matching-Farbpalette. Ein farbiges Etikett nennt die
+Kategorie zusätzlich als Text. In einer Parzellengruppe zeigt jede Tabellenzeile
+ihre eigene Kategorie und Farbe; die Bereichsfarbe richtet sich nach dem über
+Warteschlange oder Suche geöffneten Fall. Allgemeine Suffix-Prüffälle sind
+hellgelb, einzelne Gebäude mit Suffixadressen dunkelgelb und manuell zu prüfende
+Suffix-Paare orange. Bereits gespeicherte Fälle verwenden ihre importierte
+`Matching-Kategorie`; fehlt diese Angabe, bleibt die Darstellung neutral.
+
 Die Liste links enthält offene, unklare und zurückgestellte Fälle. GVBSIDs mit
 gemeinsamer importierter oder verlässlich ermittelter EGRID werden gemeinsam
 angezeigt. Fehlt eine verlässliche Parzellenbeziehung, wird keine Gruppierung
