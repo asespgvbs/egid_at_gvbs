@@ -347,8 +347,10 @@ function renderCase() {
     const identity = node("td"), trigger = node("button", `${record.gvbsid} (GVBSID)`, "gvbsid-info");
     trigger.type = "button"; recordInfo.attach(trigger, record);
     const info = node("ul", undefined, "gvbs-info-list");
+    const volume = String(record.raw?.Kubatur ?? "").replace(/\s+/g, " ").trim();
     info.append(node("li", `Adresse: ${String(record.address || "–").replace(/\s+/g, " ").trim()}`),
-      node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`));
+      node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`),
+      node("li", `Gebäudevolumen: ${volume ? volume + " m³" : "Nicht angegeben"}`));
     identity.append(trigger, node("strong", "GVBS-Info:", "gvbs-info-title"), info);
     const categoryLabel = node("span", category.label, "row-category-label");
     categoryLabel.title = category.name;

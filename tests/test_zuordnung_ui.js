@@ -60,7 +60,7 @@ function runReviewUiTest(sources) {
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
-    records: [{gvbsid: "SYNTHETIC-1", address: "GVBS-Testweg 1, 0000", purpose: "Synthetisches Wohnhaus", raw: {"Matching-Kategorie": "review_address_suffix"}, candidates: ["101"], suffix_candidates: ["102"], grids: ["CH-SYNTHETIC-1"], assigned: [], status: "Offen", comment: ""}],
+    records: [{gvbsid: "SYNTHETIC-1", address: "GVBS-Testweg 1, 0000", purpose: "Synthetisches Wohnhaus", raw: {"Matching-Kategorie": "review_address_suffix", Kubatur: 1250}, candidates: ["101"], suffix_candidates: ["102"], grids: ["CH-SYNTHETIC-1"], assigned: [], status: "Offen", comment: ""}],
     geo: {parcels: [{key: "CH-SYNTHETIC-1", egrid: "CH-SYNTHETIC-1", geometry: {type: "Polygon", coordinates: [[[7.5,47.5],[7.6,47.5],[7.6,47.6],[7.5,47.5]]]}}], buildings: [
       {egid: "101", gstat: "1004", addresses: [["GWR-Testgasse", "9a", "0000"]], geometry: {type: "Point", coordinates: [7.55,47.52]}, relation: "Amtliche EGRID-Beziehung der Quelle", geometry_note: "Swisstopo-Näherung (nur Kartendarstellung, keine Grenzprüfung)", source_updated: "2020-01-01"},
       {egid: "102", gstat: "1004", addresses: [], geometry: {type: "Polygon", coordinates: [[[7.55,47.52],[7.56,47.52],[7.56,47.53],[7.55,47.52]]]}}
@@ -73,9 +73,10 @@ function runReviewUiTest(sources) {
   check(elements["case-title"].textContent === "SYNTHETIC-1 (GVBSID)", "GVBSID in der Fallüberschrift kennzeichnen");
   check(identity.children[0].textContent === "SYNTHETIC-1 (GVBSID)", "GVBSID in der Tabellenzeile kennzeichnen");
   check(identity.children[1].textContent === "GVBS-Info:", "GVBS-Info als eigenen Abschnitt anzeigen");
-  check(identity.children[2].tagName === "UL" && identity.children[2].children.length === 2, "Zwei GVBS-Angaben als Aufzählung anzeigen");
+  check(identity.children[2].tagName === "UL" && identity.children[2].children.length === 3, "Adresse, Zweckbestimmung und Gebäudevolumen als Aufzählung anzeigen");
   check(identity.children[2].children[0].textContent === "Adresse: GVBS-Testweg 1, 0000", "GVBS-Adresse ausschliesslich aus dem GVBS-Datensatz anzeigen");
   check(identity.children[2].children[1].textContent === "Zweckbestimmung: Synthetisches Wohnhaus", "Zweckbestimmung unterhalb der Adresse anzeigen");
+  check(identity.children[2].children[2].textContent === "Gebäudevolumen: 1250 m³", "Importierte Kubatur unterhalb der Zweckbestimmung anzeigen");
   check(header.children[1].children[0].textContent === "101 (GWR)", "EGID als GWR kennzeichnen");
   check(header.children[1].children[1].textContent === "GWR-Testgasse 9a 0000", "Original-GWR-Adresse unter der EGID anzeigen");
   check(header.children[2].children[1].textContent === "GWR-Adresse nicht verfügbar", "GVBS-Adresse niemals als GWR-Ersatz anzeigen");

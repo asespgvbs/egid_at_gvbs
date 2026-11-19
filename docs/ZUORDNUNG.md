@@ -96,7 +96,9 @@ Suffix-Paare orange. Bereits gespeicherte Fälle verwenden ihre importierte
 Die Liste links enthält offene, unklare und zurückgestellte Fälle. GVBSIDs mit
 gemeinsamer importierter oder verlässlich ermittelter EGRID werden gemeinsam
 angezeigt. Fehlt eine verlässliche Parzellenbeziehung, wird keine Gruppierung
-erfunden. Zweckbestimmung steht jeweils direkt hinter der GVBSID.
+erfunden. Zweckbestimmung steht jeweils direkt hinter der GVBSID; darunter
+erscheint das Gebäudevolumen aus der importierten Spalte `Kubatur` in m³.
+Fehlt ein Wert, steht dort `Nicht angegeben`.
 
 **Weiter** und **Zurück** wechseln jeweils zum nächsten oder vorherigen Paket
 mit offenen Fällen und überspringen alle weiteren GVBSIDs des angezeigten
@@ -156,7 +158,7 @@ Die GWR-Adressen für Tabelle und Kartenbeschriftung liest die Anwendung direkt 
 bestehende `entrance.EGID`-Beziehung aus der GWR-Datenbank des Matchings.
 Strassenname, Hausnummer mit Zusatz und Postleitzahl werden unverändert
 übernommen. Links steht die GVBSID mit `(GVBSID)` und darunter `GVBS-Info:`
-mit Adresse und Zweckbestimmung als Aufzählung. Die EGID-Spalten tragen
+mit Adresse, Zweckbestimmung und Gebäudevolumen als Aufzählung. Die EGID-Spalten tragen
 `(GWR)` und zeigen darunter die zugehörigen GWR-Adressen. Die Quelle wird ausschliesslich
 schreibgeschützt geöffnet; es gibt keine neue Adresszuordnung und keinen
 Adressimport. Ein anderer GWR-Pfad lässt sich mit `--gwr-db` beim Start
