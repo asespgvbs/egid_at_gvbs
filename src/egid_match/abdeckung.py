@@ -23,6 +23,7 @@ CATEGORY_PRIORITY = (
     gvbs.SUFFIX_PAIR_REVIEW,
     "multiple_egid",
     "multiple_gvbsid_multiple_egid",
+    gvbs.SUFFIX_SINGLE_REVIEW,
     "review_address_suffix",
     "invalid_gwr_data",
     NO_DIRECT_MATCH,

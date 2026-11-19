@@ -86,9 +86,11 @@ def prepare_rows(headers, rows):
 def read_review_excel(path):
     workbook = load_workbook(path, read_only=True, data_only=False)
     try:
-        sheets = [name for name in (SHEET, matching.SUFFIX_PAIR_REVIEW) if name in workbook.sheetnames]
+        sheets = [name for name in (SHEET, matching.SUFFIX_PAIR_REVIEW, matching.SUFFIX_SINGLE_REVIEW)
+                  if name in workbook.sheetnames]
         if not sheets:
-            raise ReviewError("Die Excel-Datei enthält kein Blatt review_address_suffix oder address_suffix_pair_lt4.")
+            raise ReviewError("Die Excel-Datei enthält kein Adress-Suffix-Prüffallblatt "
+                              "(review_address_suffix, address_suffix_pair_lt4 oder review_suffix_single_building).")
         headers, row_sets = None, []
         for name in sheets:
             rows = workbook[name].iter_rows(values_only=True)
