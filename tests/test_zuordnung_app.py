@@ -136,6 +136,102 @@ class AppTests(SyntheticMemory):
         self.assertEqual(self.post("/api/save", self.decision()).status_code, 200)
         self.assertEqual(self.database.records()[1]["status"], "Offen")
 
+    def test_queue_packages_keep_interleaved_parcel_members_together(self):
+        self.database = self.empty_store(self.folder / "synthetic-packages.sqlite")
+        self.database.import_rows(HEADERS, [VALUES[0], VALUES[2], VALUES[1]], automatic_egids=set())
+        self.select(activate=True)
+        queue = self.client.get("/api/queue").json["records"]
+        self.assertEqual([row["gvbsid"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3"])
+        self.assertEqual([row["package_id"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-1", "SYNTHETIC-3"])
+        self.assertEqual([row["package_index"] for row in queue], [0, 0, 1])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-2"}).json
+        self.assertEqual(case["package_id"], "SYNTHETIC-1")
+        self.assertEqual([row["gvbsid"] for row in case["records"]], ["SYNTHETIC-1", "SYNTHETIC-2"])
+
+    def test_connected_parcels_are_one_package_even_when_bridge_is_finished(self):
+        values = [list(row) for row in VALUES]
+        values[1][7] = "CH-SYNTHETIC-1, CH-SYNTHETIC-2"
+        self.database.import_rows(HEADERS, values)
+        self.select(activate=True)
+        middle = self.database.records()[1]
+        self.database.save([{"gvbsid": "SYNTHETIC-2", "version": middle["version"], "assigned": ["102"]}], {"102"})
+        queue = self.client.get("/api/queue").json["records"]
+        self.assertEqual([row["gvbsid"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-3"])
+        self.assertEqual({row["package_id"] for row in queue}, {"SYNTHETIC-1"})
+        for gvbsid in ("SYNTHETIC-1", "SYNTHETIC-3"):
+            case = self.client.get("/api/case", query_string={"gvbsid": gvbsid}).json
+            self.assertEqual([row["gvbsid"] for row in case["records"]], ["SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3"])
+            self.assertEqual(case["egrids"], ["CH-SYNTHETIC-1", "CH-SYNTHETIC-2"])
+
+    def test_missing_egrids_produce_individual_packages(self):
+        values = [list(row) for row in VALUES]
+        for row in values:
+            row[7] = ""
+        self.database.import_rows(HEADERS, values)
+        self.select(activate=True)
+        queue = self.client.get("/api/queue").json["records"]
+        self.assertEqual(len({row["package_id"] for row in queue}), 3)
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual(len(case["records"]), 1)
+
+    def test_verified_cached_egrid_updates_packages_but_stale_cache_does_not(self):
+        self.select(activate=True)
+        self.app.session.geo_cache["SYNTHETIC-3"] = {"synthetic": True}
+        context = {"parcels": [{"egrid": "CH-SYNTHETIC-1"}], "buildings": [], "sources": {"parcels": {"stale": False}}}
+        with patch("egid_match.zuordnung.app.cached_context", return_value=context):
+            queue = self.client.get("/api/queue").json["records"]
+            self.assertEqual(len({row["package_id"] for row in queue}), 1)
+            case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-3"}).json
+            self.assertEqual(len(case["records"]), 3)
+        context["sources"]["parcels"]["stale"] = True
+        with patch("egid_match.zuordnung.app.cached_context", return_value=context):
+            queue = self.client.get("/api/queue").json["records"]
+            self.assertEqual(len({row["package_id"] for row in queue}), 2)
+
+    def test_automatic_egid_remains_visible_but_cannot_be_assigned(self):
+        self.database.import_rows(HEADERS, VALUES, automatic_egids={"101"})
+        self.select(activate=True)
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual(case["egids"], ["101", "102"])
+        self.assertEqual(case["blocked_egids"], ["101"])
+        self.assertEqual(case["assignable_egids"], ["102"])
+        self.assertTrue(case["automatic_assignments_loaded"])
+        before = self.database.records()
+        payload = self.decision(assigned=["101"], version=before[0]["version"])
+        response = self.post("/api/save", payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("automatisch zugeteilt", response.json["error"])
+        self.assertEqual(self.database.records(), before)
+
+    def test_automatic_parcel_egid_from_geo_service_stays_locked(self):
+        self.database.import_rows(HEADERS, VALUES, automatic_egids={"999"})
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json["buildings"][0]["automatically_assigned"])
+        self.assertFalse(response.json["buildings"][0]["assignable"])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertIn("999", case["egids"])
+        self.assertIn("999", case["blocked_egids"])
+        self.assertNotIn("999", case["assignable_egids"])
+        record = self.database.records()[0]
+        self.assertEqual(self.post("/api/save", self.decision(assigned=["999"], version=record["version"])).status_code, 400)
+
+    def test_legacy_database_requires_matching_import_before_assignment(self):
+        with self.database.connection(write=True) as connection:
+            connection.execute("DELETE FROM review_meta WHERE key='automatic_egids'")
+        self.select(activate=True)
+        self.assertIn("Matching-Datei", self.client.get("/api/state").json["warning"])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertFalse(case["automatic_assignments_loaded"])
+        self.assertEqual(case["assignable_egids"], [])
+        self.assertEqual(self.post("/api/save", self.decision(assigned=[])).status_code, 400)
+
     def test_save_without_status_completes_decision_and_refreshes_progress_and_queue(self):
         self.select(activate=True)
         payload = self.decision(assigned=["101"])
@@ -213,7 +309,7 @@ class AppTests(SyntheticMemory):
         self.post("/api/save", self.decision())
         prepared = prepare_rows(HEADERS, VALUES)[1]
         self.dialogs.choose.return_value = str(self.folder / "synthetic_import.xlsx")
-        with patch("egid_match.zuordnung.store.read_review_excel", return_value=(HEADERS, prepared)):
+        with patch("egid_match.zuordnung.store.read_review_excel", return_value=(HEADERS, prepared, set())):
             response = self.post("/api/import")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["imported"], 3)

@@ -21,7 +21,7 @@ function runReviewUiTest(sources) {
     addEventListener(name, callback) {this.events[name] = callback;}
     contains(target) {return this === target || this.children.some(child => child.contains(target));}
     querySelectorAll(selector) {
-      const matches = child => selector === "[data-egid]" ? child.dataset.egid !== undefined : ["INPUT", "SELECT", "TEXTAREA"].includes(child.tagName);
+      const matches = child => selector === "[data-egid]" ? child.dataset.egid !== undefined : ["INPUT", "SELECT", "TEXTAREA"].includes(child.tagName) || child.dataset.removeBlocked !== undefined;
       return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
     }
   }
@@ -56,9 +56,10 @@ function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"];
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,configure(value,view,layers){current=value;selectedEgid=null;state={database:'synthetic',active:true,progress:{total:1}};queue=[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,configure(value,view,layers,items){current=value;selectedEgid=null;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
+    automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
     records: [{gvbsid: "SYNTHETIC-1", address: "GVBS-Testweg 1, 0000", purpose: "Synthetisches Wohnhaus", raw: {"Matching-Kategorie": "review_address_suffix"}, candidates: ["101"], suffix_candidates: ["102"], grids: ["CH-SYNTHETIC-1"], assigned: [], status: "Offen", comment: ""}],
     geo: {parcels: [{key: "CH-SYNTHETIC-1", egrid: "CH-SYNTHETIC-1", geometry: {type: "Polygon", coordinates: [[[7.5,47.5],[7.6,47.5],[7.6,47.6],[7.5,47.5]]]}}], buildings: [
       {egid: "101", gstat: "1004", addresses: [["GWR-Testgasse", "9a", "0000"]], geometry: {type: "Point", coordinates: [7.55,47.52]}, relation: "Amtliche EGRID-Beziehung der Quelle", geometry_note: "Swisstopo-Näherung (nur Kartendarstellung, keine Grenzprüfung)", source_updated: "2020-01-01"},
@@ -144,6 +145,52 @@ function runReviewUiTest(sources) {
     check(!elements["left-pane"].classList.contains("has-category"), "Fehlende oder unbekannte Kategorie neutral darstellen");
     check(elements["left-pane"].style.getPropertyValue("--category-color") === "#d9e2e6", "Vorherige Kategoriefarbe beim Wechsel zu unbekannter Kategorie entfernen");
   }
+  const locked = {...value, blocked_egids: ["101", "102"], assignable_egids: [],
+    records: [{...value.records[0], assigned: []}]};
+  ui.configure(locked, map, layers); ui.renderCase();
+  const lockedTable = elements.matrix.children[0], lockedHeader = lockedTable.children[0].children[0];
+  const lockedCell = lockedTable.children[1].children[0].children[1], lockedInput = lockedCell.children[0];
+  check(lockedHeader.children[1].classList.contains("egid-locked") && lockedCell.classList.contains("egid-locked"), "Automatisch zugeteilte Spalten und Zellen als gesperrt kennzeichnen");
+  check(lockedInput.disabled && lockedHeader.children[1].textContent.includes("Automatisch zugeteilt"), "Gesperrte EGID deaktivieren und die Sperre erklären");
+  lockedInput.checked = true; lockedInput.events.change();
+  check(!lockedInput.checked && locked.records[0].assigned.length === 0, "Auch ein künstliches Änderungsereignis kann keine gesperrte EGID vergeben");
+  ui.renderGeo();
+  check(layers.markers.layers[0].markers.every(marker => marker.options.fillColor === "#a0a9b0"), "Automatisch zugeteilte Kartenpunkte grau darstellen");
+  check(layers.buildings.layers[0].options.style.fillColor === "#a0a9b0", "Automatisch zugeteilte Gebäudegeometrien grau darstellen");
+  check(layers.labels.layers[0].options.icon.html.textContent.includes("automatisch zugeteilt"), "Gesperrte Kartenbeschriftungen erklären die automatische Zuteilung");
+  const conflict = {...value, blocked_egids: ["101"], assignable_egids: ["102"],
+    records: [{...value.records[0], assigned: ["101"]}]};
+  ui.configure(conflict, map, layers); ui.renderCase();
+  check(conflict.records[0].assigned.join() === "101", "Bestehende manuelle Konflikte beim Anzeigen erhalten");
+  const conflictIdentity = elements.matrix.children[0].children[1].children[0].children[0];
+  const conflictNote = conflictIdentity.children.find(child => child.className === "assignment-conflict");
+  conflictNote.children[1].events.click();
+  check(conflict.records[0].assigned.length === 0, "Gesperrte Altzuordnung erst nach ausdrücklichem Klick entfernen");
+  check(elements.matrix.children[0].children[1].children[0].children[1].children[0].disabled, "Nach Entfernen des Konflikts bleibt die EGID gesperrt");
+  ui.configure({...value, automatic_assignments_loaded: false}, map, layers); ui.renderCase();
+  check(elements.save.disabled && elements.matrix.children[0].children[1].children[0].children[1].children[0].disabled, "Ohne bekannte automatische Zuordnungen bleiben Vergabe und Speichern gesperrt");
+  check(!elements["assignment-lock-note"].hidden && elements["assignment-lock-note"].textContent.includes("Matching-Datei"), "Bei Altbeständen den nötigen vollständigen Import erklären");
+  const packageQueue = [
+    {gvbsid: "SYNTHETIC-1", package_id: "SYNTHETIC-1", package_index: 0},
+    {gvbsid: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2},
+    {gvbsid: "SYNTHETIC-2", package_id: "SYNTHETIC-1", package_index: 0},
+  ];
+  for (const selected of ["SYNTHETIC-1", "SYNTHETIC-2"]) {
+    ui.configure({...value, selected, package_id: "SYNTHETIC-1", package_index: 0}, map, layers, packageQueue);
+    ui.renderCase();
+    const navigation = ui.packageNavigation();
+    check(navigation.next === "SYNTHETIC-3" && navigation.previous === null, "Weiter überspringt alle Mitglieder des aktuellen Pakets, auch bei verstreuten Warteschlangeneinträgen");
+    check(elements.previous.disabled && !elements.next.disabled, "Am ersten Paket nur Weiter aktivieren");
+    check(elements["queue-position"].textContent === "Paket 1 / 2", "Die Paketposition statt einer einzelnen GVBSID-Position anzeigen");
+  }
+  ui.configure({...value, selected: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2}, map, layers, packageQueue);
+  ui.renderCase();
+  check(ui.packageNavigation().previous === "SYNTHETIC-1" && ui.packageNavigation().next === null, "Zurück springt zum ersten offenen Fall des vorherigen Pakets");
+  check(!elements.previous.disabled && elements.next.disabled, "Am letzten Paket nur Zurück aktivieren");
+  ui.configure({...value, selected: "SYNTHETIC-CLOSED", package_id: "SYNTHETIC-CLOSED", package_index: 1}, map, layers, packageQueue);
+  check(ui.packageNavigation().previous === "SYNTHETIC-1" && ui.packageNavigation().next === "SYNTHETIC-3", "Ein über Suche geöffnetes abgeschlossenes Paket behält passende Nachbarpakete");
+  ui.configure(value, map, layers, []); ui.renderCase();
+  check(elements.previous.disabled && elements.next.disabled, "Ohne offene Pakete beide Richtungen sperren");
   ui.configure(value, map, layers); ui.renderCase();
   ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, impossible: 0, remaining: 1}});
   check(elements["case-category"].hidden && !elements["left-pane"].classList.contains("has-category"), "Beim Datenbankwechsel die Kategoriefarbe und Beschriftung zurücksetzen");

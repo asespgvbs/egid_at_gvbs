@@ -20,7 +20,7 @@
   </header>
   <section class="setup" aria-label="Einrichtung">
     <div class="step"><span class="step-number">1</span><div><strong>Zuordnungsdatenbank</strong><div class="button-row"><button id="select-db">Datenbank auswählen</button><button id="new-db" class="secondary">Neue erstellen</button></div><small id="database-path">Keine Datenbank ausgewählt</small></div></div>
-    <div class="step"><span class="step-number">2</span><div><strong>Prüffälle bereitstellen</strong><div class="button-row"><button id="import" disabled>Excel laden</button><button id="activate" class="secondary" disabled>Gespeicherte Daten aktivieren</button></div><small>Adress-Suffix-Prüffälle: allgemeine Fälle, Paare unter 4 und einzelne Kontrollnummer-0 mit Suffixadressen</small></div></div>
+    <div class="step"><span class="step-number">2</span><div><strong>Prüffälle bereitstellen</strong><div class="button-row"><button id="import" disabled>Excel laden</button><button id="activate" class="secondary" disabled>Gespeicherte Daten aktivieren</button></div><small>Vollständige Matching-Datei laden: Prüffälle übernehmen und automatisch zugeteilte EGID sperren.</small></div></div>
   </section>
   <nav class="toolbar" aria-label="Bearbeitung">
     <form id="search-form"><label class="sr-only" for="search">GVBSID eingeben</label><input id="search" placeholder="GVBSID eingeben" autocomplete="off" disabled><button id="search-button" disabled>Bearbeiten</button></form>
@@ -36,9 +36,10 @@
       <div id="case-content" hidden>
         <div class="case-meta"><strong>EGRID</strong><span id="egrids"></span><span id="dirty" hidden>Nicht gespeicherte Änderungen</span></div>
         <p class="hint">Checkboxen ordnen zu. Details zur GVBSID erscheinen beim Darüberfahren oder Antippen. Kommentare lassen sich unterhalb der GVBSID aufklappen. Ein Klick auf eine EGID hebt sie auf der Karte hervor.</p>
+        <p id="assignment-lock-note" class="assignment-lock-note" role="status" hidden></p>
         <div id="matrix" class="matrix-wrap"></div>
       </div>
-      <footer class="case-actions"><button id="previous" class="secondary" disabled>← Zurück</button><button id="save" disabled title="Mit EGID-Zuordnung abschliessen; ohne Zuordnung als «Keine Zuordnung möglich» speichern.">Entscheidung speichern</button><button id="next" class="secondary" disabled>Weiter →</button></footer>
+      <footer class="case-actions"><button id="previous" class="secondary" disabled title="Zum vorherigen Paket mit offenen Fällen wechseln">← Zurück</button><button id="save" disabled title="Mit EGID-Zuordnung abschliessen; ohne Zuordnung als «Keine Zuordnung möglich» speichern.">Entscheidung speichern</button><button id="next" class="secondary" disabled title="Zum nächsten Paket mit offenen Fällen wechseln">Weiter →</button></footer>
     </section>
     <div id="divider" role="separator" aria-label="Breite der Zuordnung ändern" aria-orientation="vertical" aria-valuenow="50" tabindex="0"></div>
     <section class="map-pane" aria-label="GeoBS-Karte">

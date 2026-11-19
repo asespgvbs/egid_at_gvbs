@@ -95,27 +95,79 @@ class ReviewSession:
 
     def state(self):
         progress = self.store.progress() if self.store else {"total": 0, "completed": 0, "impossible": 0, "remaining": 0}
+        automatic_known = self.store is not None and self.store.automatic_egids() is not None
+        warning = self.warning
+        if self.store is not None and not automatic_known:
+            warning = (warning + " Bitte die vollständige Matching-Datei laden, um automatisch zugeteilte EGID zu sperren.").strip()
         return {"database": str(self.store.path) if self.store else None, "active": self.active,
-                "progress": progress, "warning": self.warning, "statuses": list(STATUSES)}
+                "progress": progress, "warning": warning, "statuses": list(STATUSES),
+                "automatic_assignments_loaded": automatic_known}
+
+    def record_grids(self, record):
+        grids = set(record["grids"])
+        cached = cached_context(self.geo_cache[record["gvbsid"]]) if record["gvbsid"] in self.geo_cache else {}
+        if not cached.get("sources", {}).get("parcels", {}).get("stale"):
+            grids.update(parcel["egrid"] for parcel in cached.get("parcels", []) if parcel.get("egrid"))
+        return grids
+
+    def record_packages(self, records):
+        """Zusammenhängende EGRID-Gruppen in ursprünglicher Importreihenfolge."""
+        parents = list(range(len(records)))
+
+        def root(index):
+            while parents[index] != index:
+                parents[index] = parents[parents[index]]
+                index = parents[index]
+            return index
+
+        by_grid = {}
+        for index, record in enumerate(records):
+            for grid in self.record_grids(record):
+                other = by_grid.setdefault(grid, index)
+                left, right = root(index), root(other)
+                parents[max(left, right)] = min(left, right)
+        packages = {}
+        for index, record in enumerate(records):
+            packages.setdefault(root(index), []).append(record)
+        return list(packages.values())
+
+    def queue(self):
+        records = self.require_store(active=True).records()
+        return [{**{key: record[key] for key in ("gvbsid", "purpose", "address", "status")},
+                 "package_id": package[0]["gvbsid"], "package_index": index}
+                for index, package in enumerate(self.record_packages(records))
+                for record in package if record["status"] not in FINISHED]
 
     def case(self, gvbsid):
         records = self.require_store(active=True).records()
+        blocked = self.store.automatic_egids()
         target = next((record for record in records if record["gvbsid"] == gvbsid), None)
         if target is None:
             raise ReviewError("GVBSID nicht gefunden. Die Suche berücksichtigt auch abgeschlossene Fälle.")
         cached = cached_context(self.geo_cache[gvbsid]) if gvbsid in self.geo_cache else {}
-        grids = set(target["grids"])
-        grids.update(parcel["egrid"] for parcel in cached.get("parcels", []) if parcel.get("egrid") and not cached.get("sources", {}).get("parcels", {}).get("stale"))
-        grouped = [record for record in records if record["gvbsid"] == gvbsid or grids.intersection(record["grids"])]
+        package_index, grouped = next((index, package)
+                                      for index, package in enumerate(self.record_packages(records))
+                                      if any(record["gvbsid"] == gvbsid for record in package))
+        grids = set().union(*(self.record_grids(record) for record in grouped))
         available = set()
         for record in grouped:
             available.update(record["candidates"] + record["suffix_candidates"] + record["assigned"])
         available.update(building["egid"] for building in cached.get("buildings", []) if building.get("assignable"))
+        visible = available | {building["egid"] for building in cached.get("buildings", [])}
+        if cached:
+            cached = {**cached, "buildings": [{**building,
+                "automatically_assigned": building["egid"] in (blocked or set()),
+                "assignable": blocked is not None and building.get("assignable", False) and building["egid"] not in blocked,
+            } for building in cached.get("buildings", [])]}
         for record in grouped:
             record["raw"] = {key: value if isinstance(value, (str, int, float, bool, type(None))) else str(value)
                              for key, value in record["raw"].items()}
         return {"selected": gvbsid, "records": grouped, "egrids": sorted(grids),
-                "egids": sorted(available, key=int), "geo": cached or None}
+                "package_id": grouped[0]["gvbsid"], "package_index": package_index,
+                "egids": sorted(available, key=int), "geo": cached or None,
+                "blocked_egids": sorted(visible & (blocked or set()), key=int),
+                "assignable_egids": sorted(available - blocked, key=int) if blocked is not None else [],
+                "automatic_assignments_loaded": blocked is not None}
 
 
 @dataclass
@@ -180,8 +232,7 @@ class ReviewApplication:
                     if path == "/api/state":
                         return json_response(self.session.state())
                     if path == "/api/queue":
-                        records = self.session.require_store(active=True).records()
-                        return json_response({"records": [{key: row[key] for key in ("gvbsid", "purpose", "address", "status")} for row in records if row["status"] not in FINISHED]})
+                        return json_response({"records": self.session.queue()})
                     if path == "/api/case":
                         query = parse_qs(parts.query)
                         gvbsid = query.get("gvbsid", [""])[0]
@@ -259,7 +310,7 @@ class ReviewApplication:
             allowed_records = {row["gvbsid"] for row in current["records"]}
             if not all(isinstance(row, dict) and row.get("gvbsid") in allowed_records for row in data["decisions"]):
                 raise ReviewError("Die Entscheidungen gehoeren nicht zum geoeffneten Fall.")
-            session.store.save(data["decisions"], current["egids"])
+            session.store.save(data["decisions"], current["assignable_egids"])
             return session.state()
 
     def export(self):

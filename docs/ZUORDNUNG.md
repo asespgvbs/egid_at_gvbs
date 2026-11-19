@@ -36,11 +36,25 @@ unverändert und unabhängig vom Zuordnungswerkzeug.
    mehreren zusätzlichen GWR-Suffixadressen. Diese Kontrollnummer kommt im
    gesamten Import nur einmal vor; es erfolgt keine automatische Zuordnung.
    Hellbraun markierte Paare aus `address_suffix_pair_ge4` sind bereits automatisch
-   zugeordnet und werden nicht importiert. Die Prüffallblätter müssen dieselben
+   zugeordnet und werden nicht als Prüffälle importiert; ihre EGID werden gesperrt.
+   Die Prüffallblätter müssen dieselben
    Spalten enthalten. Originalspalten
    und Zellwerte werden in SQLite gespeichert. Pro GVBSID ist eine eindeutige
    Importzeile erforderlich. Alternativ aktiviert **Gespeicherte Daten
    aktivieren** die bereits importierten Fälle ohne erneutes Excel-Lesen.
+
+Für den Import wird die **vollständige Matching-Datei mit dem Blatt `Matching`**
+benötigt. Daraus übernimmt die App alle tatsächlich automatisch zugeteilten EGID
+in eine globale Sperrliste, auch wenn die zugehörigen GVBSIDs keine Prüffälle
+sind. Reine Prüffalldateien ohne diese Information werden zurückgewiesen.
+Aktuelle App-Exporte enthalten die Sperrliste im Blatt `Automatische Zuordnungen`
+und können ebenfalls importiert werden. Bereits bekannte Sperren bleiben bei
+weiteren Importen erhalten.
+
+Bei älteren Bearbeitungsständen ohne Sperrliste muss die vollständige
+Matching-Datei einmal neu importiert werden. Bis dahin können Fälle angesehen,
+aber keine Zuordnungen gespeichert werden. Bestehende manuelle Entscheidungen
+bleiben beim Import erhalten.
 
 Bis Schritt 1 abgeschlossen ist, sind nur die Datenbankaktionen aktiv. Auch nach
 einem Neustart muss Schritt 2 bewusst bestätigt werden. Funktionen bleiben bis
@@ -84,10 +98,32 @@ gemeinsamer importierter oder verlässlich ermittelter EGRID werden gemeinsam
 angezeigt. Fehlt eine verlässliche Parzellenbeziehung, wird keine Gruppierung
 erfunden. Zweckbestimmung steht jeweils direkt hinter der GVBSID.
 
+**Weiter** und **Zurück** wechseln jeweils zum nächsten oder vorherigen Paket
+mit offenen Fällen und überspringen alle weiteren GVBSIDs des angezeigten
+Pakets. Ein Paket umfasst die über gemeinsame EGRIDs verbundenen Fälle;
+dadurch können auch mehrere zusammenhängende Parzellen gemeinsam erscheinen.
+Ohne verlässliche EGRID ist jeder Fall ein eigenes Paket. Die Reihenfolge folgt
+dem ersten Auftreten im Import, auch wenn die Mitglieder eines Pakets dort
+verstreut standen. Die Anzeige nennt die aktuelle Paketnummer. Einzelne GVBSIDs
+bleiben über die Warteschlange und die Suche direkt erreichbar. Beim Blättern
+bleibt die Rückfrage zu ungespeicherten Änderungen bestehen.
+
 Jede Matrix-Checkbox stellt eine Beziehung dar. Eine GVBSID darf mehrere EGID
-erhalten; dieselbe EGID darf mehreren GVBSIDs zugeordnet werden. Status und
+erhalten; dieselbe frei verfügbare EGID darf mehreren GVBSIDs zugeordnet werden. Status und
 Kommentar werden je GVBSID geführt. Angezeigte ursprüngliche Kandidaten werden
 niemals allein durch das Öffnen oder einen Kartenklick bestätigt.
+
+**Bereits automatisch zugeteilte EGID sind grau und gesperrt**: in der Tabelle,
+bei Kartenpunkten, Gebäudegeometrien und Beschriftungen. Sie bleiben zur
+Orientierung sichtbar und auf der Karte auswählbar, können aber keiner GVBSID
+neu zugeordnet werden. Die Prüfung gilt auch für zusätzliche EGID aus dem
+Geodienst und wird beim Speichern innerhalb derselben Transaktion erneut
+durchgeführt. Ein unzulässiger Eintrag verwirft die gesamte Speicheraktion.
+
+Wenn eine frühere manuelle Beziehung einer neuen automatischen Sperre
+widerspricht, bleibt sie als Konflikt sichtbar. Mit **Gesperrte Zuordnung
+entfernen** wird sie zur Entfernung vorgemerkt und erst durch **Entscheidung
+speichern** tatsächlich geändert. Die betreffende EGID bleibt gesperrt.
 
 **Entscheidung speichern** schreibt die geänderten GVBSIDs gemeinsam in einer
 SQLite-Transaktion. Bei einem Versionskonflikt, zum Beispiel durch eine zweite
@@ -179,6 +215,8 @@ nicht erforderlich. Die Ausgabe enthält:
 2. **Zuordnungen**: eine Zeile je gespeicherter GVBSID-EGID-Beziehung, inklusive
    Zweckbestimmung, Status und Kommentar.
 3. **Offene Fälle**: alle Fälle mit Status Offen, Unklar oder Zurückgestellt.
+4. **Automatische Zuordnungen**: die bekannte globale EGID-Sperrliste für einen
+   erneuten Import. Bei Altbeständen ohne geladene Sperrliste fehlt dieses Blatt.
 
 Mehrere EGID werden vollständig aufgelistet. Abgeschlossene Fälle und solche
 ohne mögliche Zuordnung bleiben im Gesamtblatt enthalten. Bereits vorhandene

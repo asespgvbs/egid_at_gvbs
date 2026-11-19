@@ -30,6 +30,14 @@ function recordCategory(record) {
   return {name, color, label: Object.hasOwn(labels, name) ? labels[name] : name || "Kategorie unbekannt"};
 }
 
+function isBlockedEgid(egid) {
+  return Boolean(current?.blocked_egids?.includes(String(egid)));
+}
+
+function canAssignEgid(egid) {
+  return Boolean(current?.automatic_assignments_loaded && current.assignable_egids?.includes(String(egid)));
+}
+
 function paintCategory(element, category) {
   element.classList.toggle("has-category", Boolean(category.color));
   element.style.setProperty("--category-color", category.color || "#d9e2e6");
@@ -134,6 +142,26 @@ async function api(path, data) {
   return result;
 }
 
+function packageNavigation() {
+  const packages = [], seen = new Set();
+  for (const record of queue) {
+    const id = record.package_id || record.gvbsid;
+    if (seen.has(id)) continue;
+    seen.add(id); packages.push({id, index: record.package_index, gvbsid: record.gvbsid});
+  }
+  const selected = current?.package_id || queue.find(record => record.gvbsid === current?.selected)?.package_id || current?.selected;
+  const position = packages.findIndex(item => item.id === selected);
+  let previous = null, next = null;
+  if (current && position >= 0) {
+    previous = packages[position - 1]?.gvbsid || null;
+    next = packages[position + 1]?.gvbsid || null;
+  } else if (current && Number.isInteger(current.package_index)) {
+    previous = packages.filter(item => item.index < current.package_index).at(-1)?.gvbsid || null;
+    next = packages.find(item => item.index > current.package_index)?.gvbsid || null;
+  }
+  return {packages, position, previous, next};
+}
+
 function gates() {
   const database = Boolean(state?.database), active = Boolean(state?.active);
   for (const id of ["select-db", "new-db"]) $(id).disabled = busy;
@@ -142,11 +170,13 @@ function gates() {
   for (const id of ["search", "search-button", "export", "queue"]) $(id).disabled = busy || !active;
   const selectedRecord = current?.records.find(record => record.gvbsid === current.selected);
   const openDecision = selectedRecord && !["Abgeschlossen", "Keine Zuordnung möglich"].includes(selectedRecord.status);
-  $("save").disabled = busy || !active || !current || (!dirty.size && !openDecision);
-  const position = current ? queue.findIndex(record => record.gvbsid === current.selected) : -1;
-  $("previous").disabled = busy || !active || position <= 0;
-  $("next").disabled = busy || !active || !queue.length || position >= queue.length - 1;
-  for (const input of $("case-content").querySelectorAll("input,select,textarea")) input.disabled = busy || !active;
+  $("save").disabled = busy || !active || !current?.automatic_assignments_loaded || (!dirty.size && !openDecision);
+  const navigation = packageNavigation();
+  $("previous").disabled = busy || !active || !navigation.previous;
+  $("next").disabled = busy || !active || !navigation.next;
+  for (const input of $("case-content").querySelectorAll("input,select,textarea,button[data-remove-blocked]")) {
+    input.disabled = busy || !active || !current?.automatic_assignments_loaded || (input.type === "checkbox" && !canAssignEgid(input.dataset.egid));
+  }
   $("dirty").hidden = !dirty.size;
 }
 
@@ -186,8 +216,10 @@ function canLeave() {
   return !dirty.size || window.confirm("Nicht gespeicherte Änderungen verwerfen und den Fall verlassen?");
 }
 
-async function refreshQueue() {
-  queue = (await api("/api/queue")).records;
+async function refreshQueue(stamp = null) {
+  const value = await api("/api/queue");
+  if (stamp !== null && stamp !== generation) return;
+  queue = value.records;
   $("queue").replaceChildren();
   if (!queue.length) $("queue").append(node("option", "Keine Fälle in der Warteschlange"));
   for (const record of queue) {
@@ -284,17 +316,27 @@ function renderCase() {
   $("case-title").textContent = `${current.selected} (GVBSID)`;
   $("egrids").textContent = current.egrids.join(", ") || "Keine verlässliche EGRID vorhanden";
   const position = queue.findIndex(record => record.gvbsid === current.selected);
-  $("queue-position").textContent = position < 0 ? "Über Suche geöffnet" : `${position + 1} / ${queue.length}`;
+  const navigation = packageNavigation();
+  $("queue-position").textContent = navigation.position < 0 ? "Über Suche geöffnet"
+    : `Paket ${navigation.position + 1} / ${navigation.packages.length}`;
+  $("queue-position").title = `${current.records.length} GVBSID im angezeigten Paket`;
   if (position >= 0) $("queue").value = current.selected;
+  const lockNote = $("assignment-lock-note");
+  lockNote.hidden = Boolean(current.automatic_assignments_loaded && !current.blocked_egids?.length);
+  lockNote.textContent = !current.automatic_assignments_loaded
+    ? "Bitte die vollständige Matching-Datei importieren. Ohne die Liste automatischer Zuordnungen bleibt die Vergabe gesperrt."
+    : "Graue EGID sind bereits automatisch zugeteilt und können nicht erneut vergeben werden.";
   const table = node("table"), head = node("thead"), headings = node("tr");
   headings.append(node("th", "GVBS"));
   for (const egid of current.egids) {
     const th = node("th", undefined, "gwr-column"), button = node("button", `${egid} (GWR)`, "egid-button");
+    th.classList.toggle("egid-locked", isBlockedEgid(egid));
     button.type = "button"; button.dataset.egid = egid;
     button.addEventListener("click", () => selectEgid(egid));
     const addresses = [...new Set((current.geo?.buildings || []).filter(building => building.egid === egid).flatMap(gwrAddresses))];
     const addressText = addresses.join("; ") || (current.geo ? "GWR-Adresse nicht verfügbar" : "GWR-Adresse wird geladen …");
     th.append(button, node("span", addressText, "gwr-table-address")); headings.append(th);
+    if (isBlockedEgid(egid)) th.append(node("span", "Automatisch zugeteilt · gesperrt", "egid-lock-label"));
   }
   head.append(headings); table.append(head);
   const body = node("tbody");
@@ -311,12 +353,28 @@ function renderCase() {
     const categoryLabel = node("span", category.label, "row-category-label");
     categoryLabel.title = category.name;
     identity.append(categoryLabel);
+    const conflicts = record.assigned.filter(isBlockedEgid);
+    if (conflicts.length) {
+      const note = node("div", undefined, "assignment-conflict");
+      note.append(node("p", `Gespeicherte Zuordnung steht im Konflikt mit automatischer Zuteilung: ${conflicts.join(", ")}.`));
+      const remove = node("button", "Gesperrte Zuordnung entfernen", "secondary");
+      remove.type = "button"; remove.dataset.removeBlocked = "true";
+      remove.addEventListener("click", () => {
+        if (busy || !state?.active || !current?.automatic_assignments_loaded) return;
+        record.assigned = record.assigned.filter(egid => !isBlockedEgid(egid));
+        changed(record); renderCase();
+      });
+      note.append(remove); identity.append(note);
+    }
     tr.append(identity);
     for (const egid of current.egids) {
       const td = node("td"), checkbox = document.createElement("input");
+      td.classList.toggle("egid-locked", isBlockedEgid(egid));
       td.dataset.egid = egid; checkbox.type = "checkbox"; checkbox.checked = record.assigned.includes(egid);
+      checkbox.dataset.egid = egid;
       checkbox.setAttribute("aria-label", `${record.gvbsid} der EGID ${egid} zuordnen`);
       checkbox.addEventListener("change", () => {
+        if (!canAssignEgid(egid)) {checkbox.checked = record.assigned.includes(egid); return;}
         const values = new Set(record.assigned);
         if (checkbox.checked) values.add(egid); else values.delete(egid);
         record.assigned = [...values]; changed(record);
@@ -439,7 +497,8 @@ function renderGeo() {
       if (isPoint) {
         pointFeatures.push({type: "Feature", geometry, properties: {egid, gstat: building.gstat, needs_review: building.needs_review, addresses}});
       } else if (!isPoint) {
-        const layer = L.geoJSON(geometry, {style: {color: "#547d8a", weight: 2, fillColor: "#75a3ac", fillOpacity: .35}}).addTo(mapLayers.buildings);
+        const layer = L.geoJSON(geometry, {style: {color: isBlockedEgid(egid) ? "#7b858d" : "#547d8a", weight: 2,
+          fillColor: isBlockedEgid(egid) ? "#a0a9b0" : "#75a3ac", fillOpacity: .35}}).addTo(mapLayers.buildings);
         layer.on("click", () => selectEgid(egid));
         allBounds.extend(layer.getBounds());
         if (!geometryIndex.has(egid)) geometryIndex.set(egid, []); geometryIndex.get(egid).push(layer);
@@ -450,11 +509,14 @@ function renderGeo() {
     }
   }
   const features = {type: "FeatureCollection", features: pointFeatures};
-  for (const feature of features.features) feature.properties.needs_review = buildingIndex.get(feature.properties.egid)?.needs_review;
+  for (const feature of features.features) {
+    feature.properties.needs_review = buildingIndex.get(feature.properties.egid)?.needs_review;
+    feature.properties.automatically_assigned = isBlockedEgid(feature.properties.egid);
+  }
   ReviewEgidPoints.layer(L, features, {renderer: egidRenderer, map, index: markerIndex, selected: selectedEgid, onSelect: selectEgid,
     onPosition: (egid, position) => {
       allBounds.extend(position);
-      const content = ReviewEgidPoints.label(egid, gwrAddresses(buildingIndex.get(egid)));
+      const content = ReviewEgidPoints.label(egid, gwrAddresses(buildingIndex.get(egid)), isBlockedEgid(egid));
       const label = L.marker(position, {icon: L.divIcon({className: "", html: content, iconAnchor: [-8, 8]})}).addTo(mapLayers.labels);
       label.on("click", () => selectEgid(egid));
     }
@@ -467,13 +529,13 @@ function selectEgid(egid) {
   selectedEgid = egid;
   for (const element of $("matrix").querySelectorAll("[data-egid]")) element.classList.toggle("selected-egid", element.dataset.egid === egid);
   if (map) ReviewEgidPoints.update(markerIndex, egid, map.getZoom());
-  for (const [id, layers] of geometryIndex) for (const layer of layers) layer.setStyle({color: id === egid ? "#b86a00" : "#547d8a", weight: id === egid ? 4 : 2});
+  for (const [id, layers] of geometryIndex) for (const layer of layers) layer.setStyle({color: isBlockedEgid(id) ? "#7b858d" : id === egid ? "#b86a00" : "#547d8a", weight: id === egid ? 4 : 2});
   const buildings = (current?.geo?.buildings || []).filter(value => value.egid === egid);
   const addresses = [...new Set(buildings.flatMap(gwrAddresses))];
   const addressStatus = current?.geo?.gwr_address_status;
   const addressText = addresses.length ? `GWR: ${addresses.join("; ")}` : `GWR: ${addressStatus?.code === "unreachable" ? addressStatus.message : "Keine Adresse zur EGID im GWR gefunden."}`;
   const statuses = [...new Set(buildings.map(value => value.gstat).filter(Boolean))];
-  $("egid-details").textContent = `EGID ${egid}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}`;
+  $("egid-details").textContent = `EGID ${egid}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}${isBlockedEgid(egid) ? "\nAutomatisch zugeteilt · Für manuelle Vergabe gesperrt" : ""}`;
 }
 
 async function loadGeo() {
@@ -488,6 +550,8 @@ async function loadGeo() {
   const refreshed = await api("/api/case?gvbsid=" + encodeURIComponent(selected));
   if (stamp !== generation || requestId !== geoRequestId || current?.selected !== selected) return;
   applyGeoCase(refreshed, geo); renderGeo();
+  await refreshQueue(stamp);
+  if (stamp === generation && current?.selected === selected) renderCase();
 }
 
 function applyGeoCase(refreshed, geo = refreshed.geo) {
@@ -503,8 +567,8 @@ $("import").addEventListener("click", () => action(async () => {if (!canLeave())
 $("activate").addEventListener("click", () => action(async () => {if (!canLeave()) return; await activate(await api("/api/activate", {})); message("Gespeicherter Bearbeitungsstand aktiviert.");}));
 $("search-form").addEventListener("submit", event => {event.preventDefault(); action(async () => {const id = $("search").value.trim(); if (id) await openCase(id);});});
 $("queue").addEventListener("change", () => action(() => openCase($("queue").value)));
-$("previous").addEventListener("click", () => action(async () => {const index = queue.findIndex(record => record.gvbsid === current?.selected); if (index > 0) await openCase(queue[index - 1].gvbsid);}));
-$("next").addEventListener("click", () => action(async () => {const index = queue.findIndex(record => record.gvbsid === current?.selected); if (index + 1 < queue.length) await openCase(queue[index + 1].gvbsid);}));
+$("previous").addEventListener("click", () => action(async () => {const target = packageNavigation().previous; if (target) await openCase(target);}));
+$("next").addEventListener("click", () => action(async () => {const target = packageNavigation().next; if (target) await openCase(target);}));
 $("save").addEventListener("click", () => action(async () => {
   const selected = current.selected, oldIndex = queue.findIndex(record => record.gvbsid === selected);
   const edited = current.records.filter(record => dirty.has(record.gvbsid));
