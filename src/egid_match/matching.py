@@ -2,6 +2,7 @@ import argparse
 import re
 import sqlite3
 from collections import Counter, defaultdict
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -31,6 +32,8 @@ COLUMN_ALIASES = {
     "Nr.": "Hausnummer",
     "PLZ": "Postleitzahl",
 }
+SUFFIX_PAIR_AUTO = "address_suffix_pair_ge4"
+SUFFIX_PAIR_REVIEW = "address_suffix_pair_lt4"
 CATEGORIES = [
     (
         "perfect_match",
@@ -71,6 +74,20 @@ CATEGORIES = [
         "Mindestens eine EGRID ist vorhanden; kein erkannter "
         "Hausnummernzusatzkonflikt.",
         "EGID automatisch allen beteiligten GVBSIDs zuordnen.",
+    ),
+    (
+        SUFFIX_PAIR_AUTO,
+        "Adress-Suffix-Paar: Kontrollnummer kommt im gesamten Import genau zweimal vor, "
+        "mit Gebäudenummer 0 und 1 an derselben Hauptadresse. Eindeutige EGIDs für "
+        "Hauptadresse und .1 auf derselben EGRID; keine weiteren konkurrierenden "
+        "GVBSIDs oder Suffix-EGIDs. Beide Kubaturen sind positiv; Kubatur 0 / Kubatur 1 >= 4.",
+        "Automatisch: Gebäudenummer 0 zur Haupt-EGID, Gebäudenummer 1 zur .1-EGID (Ocker).",
+    ),
+    (
+        SUFFIX_PAIR_REVIEW,
+        "Dieselben eindeutigen Adress-Suffix-Paarbedingungen wie address_suffix_pair_ge4, "
+        "aber Kubatur 0 / Kubatur 1 < 4.",
+        "Keine automatische Zuordnung. Beide Gebäude manuell prüfen (Orange).",
     ),
     (
         "review_address_suffix",
@@ -114,12 +131,15 @@ CATEGORIES = [
     ),
 ]
 AUTO_CATEGORIES = {
+    SUFFIX_PAIR_AUTO,
     "perfect_match",
     "super_match",
     "oneEgid_oneAddress_multipleGVBSIDs",
     "oneEgid_multipleAddresses_multipleGVBSIDs",
 }
 CATEGORY_COLORS = {
+    SUFFIX_PAIR_AUTO: "D6B656",
+    SUFFIX_PAIR_REVIEW: "F4B183",
     "perfect_match": "E2F0D9",
     "super_match": "DDEBF7",
     "review_address_suffix": "FFF2CC",
@@ -325,6 +345,71 @@ def suffix_conflicts_text(conflicts):
             f"auf EGRID {conflict['EGRID']}"
         )
     return "; ".join(descriptions)
+
+
+def positive_kubatur(value):
+    """Numerische Kubaturen und Dezimalkomma/Schweizer Tausendertrennzeichen."""
+    if isinstance(value, bool):
+        return None
+    text = txt(value).replace("'", "").replace("’", "").replace(" ", "").replace("\u00a0", "")
+    try:
+        number = Decimal(text.replace(",", "."))
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() and number > 0 else None
+
+
+def apply_suffix_pairs(records, keys, gvbs_keys, results, conflicts_by_row,
+                       addr_egids, gvbs_by_egid):
+    """Verfeinert ausschliesslich eindeutige Adress-Suffix-Prüfpaare."""
+    by_control = defaultdict(list)
+    for index, (control, _) in enumerate(gvbs_keys):
+        # Auch ungültige und doppelte Importzeilen zählen zur Gesamtzahl.
+        by_control[control].append(index)
+    for control, indices in by_control.items():
+        if not control or len(indices) != 2:
+            continue
+        by_building = {gvbs_keys[index][1]: index for index in indices}
+        if set(by_building) != {"0", "1"}:
+            continue
+        main, annex = by_building["0"], by_building["1"]
+        if any(results[index]["Matching-Kategorie"] != "review_address_suffix" for index in indices):
+            continue
+        if keys[main] != keys[annex]:
+            continue
+        street, number, postal = keys[main]
+        suffix_address = (street, number + ".1", postal)
+        conflicts = conflicts_by_row[main]
+        suffix_egids = {item["EGID"] for item in conflicts}
+        if len(suffix_egids) != 1 or any(item["GWR-Adresse"] != suffix_address for item in conflicts):
+            continue
+        suffix_egid = next(iter(suffix_egids))
+        if addr_egids.get(suffix_address, set()) != {suffix_egid}:
+            continue
+        main_egid = next(iter(addr_egids[keys[main]]))
+        if gvbs_by_egid[main_egid] != {gvbs_keys[main], gvbs_keys[annex]} or gvbs_by_egid.get(suffix_egid):
+            continue
+        volumes = [positive_kubatur(records[index].get("Kubatur")) for index in (main, annex)]
+        if any(volume is None for volume in volumes):
+            continue
+        ratio = volumes[0] / volumes[1]
+        automatic = volumes[0] >= 4 * volumes[1]
+        category = SUFFIX_PAIR_AUTO if automatic else SUFFIX_PAIR_REVIEW
+        comparison = ">= 4" if automatic else "< 4"
+        for index, egid, target in ((main, main_egid, keys[main]), (annex, suffix_egid, suffix_address)):
+            result = results[index]
+            result["Matching-Kategorie"] = category
+            result["Kubaturverhältnis 0/1"] = str(ratio)
+            result["EGID"] = egid if automatic else None
+            result["Automatische Zuordnung"] = "Ja" if automatic else "Nein"
+            result["Zuordnungsadresse"] = address_text(target) if automatic else ""
+            result["Matching-Zusammenfassung"] += (
+                f" Kontrollnummer {control} kommt genau zweimal vor (Gebäudenummer 0 und 1). "
+                f"Kubatur 0 / Kubatur 1 = {volumes[0]} / {volumes[1]} = {ratio} ({comparison}). "
+                + (f"Gebäudenummer {gvbs_keys[index][1]} automatisch zu EGID {egid} "
+                   f"an {address_text(target)} zugeordnet."
+                   if automatic else "Keine automatische Zuordnung; beide Gebäude manuell prüfen.")
+            )
 # ============================================================
 # GWR EINLESEN
 # ============================================================
@@ -647,6 +732,7 @@ def match(
     # EINZELNE DATENSÄTZE BEWERTEN
     # --------------------------------------------------------
     results = []
+    conflicts_by_row = []
     for record, key, gvbs_key, ok in zip(
         records,
         keys,
@@ -733,6 +819,7 @@ def match(
                 grid_egids=grid_egids,
                 gvbs_by_address=gvbs_by_address,
             )
+        conflicts_by_row.append(suffix_conflicts)
         # ----------------------------------------------------
         # SEQUENTIELLE PRÜFUNG: 1–6 OFFEN, 7–10 AUTOMATISCH
         # ----------------------------------------------------
@@ -860,6 +947,8 @@ def match(
             "Matching-Zusammenfassung":
                 summary,
         })
+    apply_suffix_pairs(matching_records, keys, gvbs_keys, results, conflicts_by_row,
+                       addr_egids, gvbs_by_egid)
     return results
 # ============================================================
 # EXCEL-AUSGABE
@@ -877,6 +966,8 @@ def save_excel(path, headers, results, records):
         "Matching-Zusammenfassung",
         "EGID",
         "Matching-Kategorie",
+        "Kubaturverhältnis 0/1",
+        "Zuordnungsadresse",
         "Anzahl GVBSID an Adresse",
         "Anzahl EGID an Adresse",
         "Anzahl GWR-Adressen pro EGID",

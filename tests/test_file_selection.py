@@ -270,7 +270,7 @@ class MultipleGvbsAssignmentTests(unittest.TestCase):
 
 
 class CategoryPriorityTests(unittest.TestCase):
-    def test_all_ten_categories_and_only_last_four_assign_egid(self):
+    def test_original_categories_and_their_automatic_assignments(self):
         cases = [
             ([""], {}, {}, "invalid_input", False),
             (["99"], {}, {}, "no_match", False),
@@ -291,8 +291,9 @@ class CategoryPriorityTests(unittest.TestCase):
                     self.assertEqual(result["Matching-Kategorie"], category)
                     self.assertEqual(result["EGID"], 900000001 if automatic else None)
                     self.assertEqual(result["Automatische Zuordnung"], "Ja" if automatic else "Nein")
-        self.assertEqual(app.AUTO_CATEGORIES, {case[3] for case in cases if case[4]})
-        self.assertEqual({case[3] for case in cases}, {name for name, _, _ in app.CATEGORIES})
+        self.assertEqual(app.AUTO_CATEGORIES - {app.SUFFIX_PAIR_AUTO}, {case[3] for case in cases if case[4]})
+        self.assertEqual({case[3] for case in cases},
+                         {name for name, _, _ in app.CATEGORIES} - {app.SUFFIX_PAIR_AUTO, app.SUFFIX_PAIR_REVIEW})
 
     def test_missing_grid_precedes_both_multiple_gvbs_categories(self):
         for numbers in (["10", "10"], ["10", "12"], ["10", "10", "12"]):
@@ -499,7 +500,7 @@ class OutputWorkbookTests(unittest.TestCase):
         self.addCleanup(workbook.close)
         self.assertEqual(list(workbook["Ergebnis"].values), [tuple([*app.REQUIRED, "Suchadresse", "EGID"])])
         self.assertEqual(next(workbook["Matching"].values)[:4], ("Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"))
-        self.assertEqual(len(workbook.worksheets), 14)
+        self.assertEqual(len(workbook.worksheets), 4 + len(app.CATEGORIES))
 
 
 if __name__ == "__main__":

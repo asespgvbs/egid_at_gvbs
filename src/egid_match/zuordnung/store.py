@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta, timezone
+from itertools import chain
 import json
 from pathlib import Path
 import sqlite3
@@ -78,17 +79,25 @@ def prepare_rows(headers, rows):
                          "address": address, "candidates": sorted(direct), "suffix_candidates": sorted(suffix),
                          "grids": sorted(grids), "raw": original})
     if not prepared:
-        raise ReviewError("Das Blatt review_address_suffix enthält keine importierbaren Zeilen.")
+        raise ReviewError("Die Adress-Suffix-Prüffallblätter enthalten keine importierbaren Zeilen.")
     return headers, prepared
 
 
 def read_review_excel(path):
     workbook = load_workbook(path, read_only=True, data_only=False)
     try:
-        if SHEET not in workbook.sheetnames:
-            raise ReviewError("Die Excel-Datei enthält kein Blatt review_address_suffix.")
-        rows = workbook[SHEET].iter_rows(values_only=True)
-        return prepare_rows(next(rows, ()), rows)
+        sheets = [name for name in (SHEET, matching.SUFFIX_PAIR_REVIEW) if name in workbook.sheetnames]
+        if not sheets:
+            raise ReviewError("Die Excel-Datei enthält kein Blatt review_address_suffix oder address_suffix_pair_lt4.")
+        headers, row_sets = None, []
+        for name in sheets:
+            rows = workbook[name].iter_rows(values_only=True)
+            sheet_headers = tuple(next(rows, ()))
+            if headers is not None and headers != sheet_headers:
+                raise ReviewError("Die Prüffallblätter müssen dieselben Spalten enthalten.")
+            headers = sheet_headers
+            row_sets.append(rows)
+        return prepare_rows(headers, chain.from_iterable(row_sets))
     finally:
         workbook.close()
 

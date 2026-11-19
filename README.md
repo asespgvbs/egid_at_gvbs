@@ -100,8 +100,9 @@ einem Feld, beispielsweise `Teststrasse 30a, 0000`. Zwischen Hausnummer und
 Zusatz steht kein Leerzeichen; vor der Postleitzahl stehen ein Komma und ein
 Leerzeichen. Die Spalte `EGID` enthält nur die
 automatisch zugeordnete EGID aus `perfect_match`, `super_match`,
-`oneEgid_oneAddress_multipleGVBSIDs` oder
-`oneEgid_multipleAddresses_multipleGVBSIDs`. Wenn mehrere GVBSIDs dieselbe
+`oneEgid_oneAddress_multipleGVBSIDs`,
+`oneEgid_multipleAddresses_multipleGVBSIDs` oder `address_suffix_pair_ge4`.
+Bei der Paarregel erhält Gebäudenummer 1 die `.1`-EGID. Wenn mehrere GVBSIDs dieselbe
 EGID als einzigen Adresskandidaten haben, erhalten sie alle diese EGID,
 auch bei unterschiedlichen GVBS-Adressen, sofern mindestens eine EGRID
 vorhanden ist und kein Hausnummernzusatzkonflikt besteht. Bei Prüffällen
@@ -109,6 +110,28 @@ und fehlenden Treffern bleibt die EGID leer.
 
 Die Kategorien werden sequentiell in dieser Reihenfolge geprüft. Die erste
 zutreffende Kategorie wird vergeben; jede Zeile erhält genau eine Kategorie.
+
+Adress-Suffix-Fälle werden zusätzlich als Paare geprüft: Eine Kontrollnummer muss
+im gesamten Import **genau zweimal** vorkommen, mit Gebäudenummer **0 und 1** an
+derselben Hauptadresse. Die Haupt-EGID und genau eine zusätzliche EGID mit
+Hausnummer **`.1`** müssen auf derselben EGRID eindeutig sein. Weitere Suffix-EGIDs
+oder konkurrierende GVBSIDs verhindern die Paarregel.
+
+Die Spalte **`Kubatur`** bestimmt das Verhältnis `Kubatur 0 / Kubatur 1`:
+
+| Neue Kategorie | Verhältnis | Zuordnung | Farbe |
+| --- | --- | --- | --- |
+| `address_suffix_pair_ge4` | ≥ 4 | Gebäudenummer 0 → Haupt-EGID, Gebäudenummer 1 → `.1`-EGID | Ocker |
+| `address_suffix_pair_lt4` | < 4 | Keine automatische Zuordnung; beide Fälle manuell prüfen | Orange |
+
+Beide Kubaturen müssen positive, endliche Zahlen sein. Fehlt eine Kubatur oder
+ist sie ungültig, bleibt der Fall in `review_address_suffix`. Dasselbe gilt bei
+einer oder mindestens drei Importzeilen zur Kontrollnummer und bei anderen
+Gebäudenummern. Die Originaladressen und direkten EGID-Kandidaten bleiben
+erhalten. `Kubaturverhältnis 0/1`, `Zuordnungsadresse` und die Zusammenfassung
+dokumentieren die Paarentscheidung. Beide neuen Kategorien erscheinen auch in
+den Kategorieblättern, Hinweisen und Statistiken. Die allgemeine Prüfreihenfolge
+vor der zusätzlichen Paarprüfung lautet:
 
 | Prüfung | Kategorie | Automatische EGID-Zuordnung |
 | --- | --- | --- |
@@ -163,6 +186,7 @@ Dialogfenster geöffnet und keine Excel-Dateien geschrieben:
 ```powershell
 .\.venv\Scripts\python.exe -I -B tests\test_file_selection.py
 .\.venv\Scripts\python.exe -I -B tests\test_egid_abdeckung.py
+.\.venv\Scripts\python.exe -I -B tests\test_suffix_pairs.py
 .\.venv\Scripts\python.exe -I -B tests\test_package.py
 ```
 
@@ -216,9 +240,12 @@ Die neue Arbeitsmappe enthält:
   werden separat dokumentiert und erhöhen die EGID-Gesamtzahl nicht.
 
 Eine automatische Zuordnung gilt nur bei einer tatsächlich eingetragenen EGID,
-dem Kennzeichen `Automatische Zuordnung = Ja` und einer der vier aktuellen
-automatischen Kategorien. Die zugeordnete EGID muss zugleich direkter Kandidat
-und Teil des GWR-Bestands sein. Kategoriennamen allein erzeugen keine Zuordnung.
+dem Kennzeichen `Automatische Zuordnung = Ja` und einer der automatischen
+Kategorien. Die zugeordnete EGID muss Teil des GWR-Bestands und entweder direkter
+Kandidat oder der durch `address_suffix_pair_ge4` zugeordnete `.1`-Kandidat sein.
+Kategoriennamen allein erzeugen keine Zuordnung. Automatisch zugeordnete
+Suffix-EGIDs zählen zum automatischen Abdeckungszustand und erscheinen nicht
+im Blatt `EGID-ohne-GVBSID`.
 
 Alle Kategorien direkter Kandidaten bleiben sichtbar. Bei mehreren Kategorien
 bestimmt ausschliesslich für die Statistik diese Priorität die Hauptkategorie:
@@ -227,17 +254,20 @@ bestimmt ausschliesslich für die Statistik diese Priorität die Hauptkategorie:
 2. `super_match`
 3. `oneEgid_oneAddress_multipleGVBSIDs`
 4. `oneEgid_multipleAddresses_multipleGVBSIDs`
-5. `multiple_egid`
-6. `multiple_gvbsid_multiple_egid`
-7. `review_address_suffix`
-8. `invalid_gwr_data`
-9. `kein direkter Adresstreffer`
+5. `address_suffix_pair_ge4`
+6. `address_suffix_pair_lt4`
+7. `multiple_egid`
+8. `multiple_gvbsid_multiple_egid`
+9. `review_address_suffix`
+10. `invalid_gwr_data`
+11. `kein direkter Adresstreffer`
 
 Eine EGID zählt genau einmal als automatisch zugeordnet, als direkter
 Adresskandidat ohne automatische Zuordnung oder als EGID ohne direkten
-Adresskandidaten. Die Summe dieser drei Zustände und die Summe der
+Adresskandidaten und ohne automatische Paarzuordnung. Die Summe dieser drei Zustände und die Summe der
 Hauptkategorien müssen jeweils der gesamten EGID-Anzahl entsprechen.
-EGIDs, die ausschliesslich über Hausnummernzusätze erkannt wurden, sind eine
-gekennzeichnete Teilmenge der EGIDs ohne direkten Kandidaten und werden nicht
-zusätzlich zur Gesamtzahl addiert. Zugehörige GVBSIDs dieser Zusatzbeziehungen
-stehen im Blatt `EGID-ohne-GVBSID`.
+EGIDs, die ausschliesslich über Hausnummernzusätze erkannt wurden, werden separat
+gekennzeichnet und nicht zusätzlich zur Gesamtzahl addiert. Mit automatischer
+Paarzuordnung zählen sie zum automatischen Zustand, sonst zum Zustand ohne
+direkten Kandidaten. Nicht zugeordnete Zusatzbeziehungen stehen im Blatt
+`EGID-ohne-GVBSID`.

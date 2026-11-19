@@ -40,7 +40,7 @@ class NativeDialogs:
                 if kind == "create":
                     return filedialog.asksaveasfilename(parent=root, title="Neue Zuordnungsdatenbank erstellen", defaultextension=".sqlite", initialfile="gvbsid_egid_zuordnung.sqlite", confirmoverwrite=True, filetypes=[("SQLite-Datenbank", "*.sqlite")])
                 if kind == "excel":
-                    return filedialog.askopenfilename(parent=root, title="Excel mit review_address_suffix auswählen", filetypes=[("Excel-Arbeitsmappe", "*.xlsx")])
+                    return filedialog.askopenfilename(parent=root, title="Excel mit Adress-Suffix-Prüffällen auswählen", filetypes=[("Excel-Arbeitsmappe", "*.xlsx")])
                 if kind == "export":
                     return filedialog.asksaveasfilename(parent=root, title="Gesamte Zuteilung als Excel exportieren", defaultextension=".xlsx", initialfile="gvbsid_egid_zuteilung.xlsx", confirmoverwrite=True, filetypes=[("Excel-Arbeitsmappe", "*.xlsx")])
                 raise ReviewError("Unbekannter Dateidialog.")

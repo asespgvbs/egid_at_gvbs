@@ -1,4 +1,4 @@
-"""Eigenständige EGID-Abdeckung auf Basis des unveränderten GVBSID-Matchings."""
+"""Eigenständige EGID-Abdeckung auf Basis des GVBSID-Matchings."""
 
 import argparse
 import sqlite3
@@ -19,6 +19,8 @@ CATEGORY_PRIORITY = (
     "super_match",
     "oneEgid_oneAddress_multipleGVBSIDs",
     "oneEgid_multipleAddresses_multipleGVBSIDs",
+    gvbs.SUFFIX_PAIR_AUTO,
+    gvbs.SUFFIX_PAIR_REVIEW,
     "multiple_egid",
     "multiple_gvbsid_multiple_egid",
     "review_address_suffix",
@@ -78,6 +80,7 @@ def analyze_coverage(existing_egids, matching_results, egid_addresses, egid_grid
     categories = defaultdict(set)
     suffix = defaultdict(set)
     assigned = set()
+    assigned_gvbsids = defaultdict(set)
     issues = []
 
     def report(kind, egid, gvbsid, detail):
@@ -95,7 +98,8 @@ def analyze_coverage(existing_egids, matching_results, egid_addresses, egid_grid
             categories[token].add(category)
             if category not in CATEGORY_PRIORITY[:-1]:
                 report("Unerwartete Kandidatenkategorie", token, gvbsid, category)
-        for token in sorted(_identifiers(result.get("EGID mit Hausnummernzusatz"))):
+        suffix_candidates = _identifiers(result.get("EGID mit Hausnummernzusatz"))
+        for token in sorted(suffix_candidates):
             if token not in inventory:
                 report("Hausnummernzusatz ausserhalb GWR-Bestand", token, gvbsid, category)
             else:
@@ -107,12 +111,19 @@ def analyze_coverage(existing_egids, matching_results, egid_addresses, egid_grid
             report("Widersprüchliche Zuordnung", assigned_token, gvbsid,
                    "EGID und Kennzeichen Automatische Zuordnung stimmen nicht überein.")
         if assigned_token:
+            suffix_assignment = (
+                category == gvbs.SUFFIX_PAIR_AUTO
+                and gvbsid.rsplit("-", 1)[-1] == "1"
+                and assigned_token in suffix_candidates
+            )
             if assigned_token not in inventory:
                 report("Zuordnung ausserhalb GWR-Bestand", assigned_token, gvbsid, category)
-            elif not automatic_flag or category not in gvbs.AUTO_CATEGORIES or assigned_token not in candidates:
+            elif not automatic_flag or category not in gvbs.AUTO_CATEGORIES or not (assigned_token in candidates or suffix_assignment):
                 report("Ungültige automatische Zuordnung", assigned_token, gvbsid, category)
             else:
                 assigned.add(assigned_token)
+                assigned_gvbsids[assigned_token].add(gvbsid)
+                categories[assigned_token].add(category)
 
     priority = {name: index for index, name in enumerate(CATEGORY_PRIORITY)}
     rows = []
@@ -132,6 +143,8 @@ def analyze_coverage(existing_egids, matching_results, egid_addresses, egid_grid
             remarks.append("Keine EGRID vorhanden.")
         if only_suffix:
             remarks.append("Nur über Hausnummernzusatz erkannt; kein direkter GVBS-Adresskandidat.")
+            if token in assigned:
+                remarks.append("Über die Kubatur-Paarregel automatisch zur Gebäudenummer 1 zugeordnet.")
         if len(all_categories) > 1:
             remarks.append("Mehrere Matching-Kategorien; Hauptkategorie gemäss statistischer Priorität.")
         rows.append({
@@ -141,10 +154,10 @@ def analyze_coverage(existing_egids, matching_results, egid_addresses, egid_grid
             "Anzahl GWR-Adressen": len(addresses),
             "Direkter GVBS-Adresskandidat vorhanden": "Ja" if has_direct else "Nein",
             "Automatisch zugeordnet": "Ja" if token in assigned else "Nein",
-            "EGID-Hauptkategorie": all_categories[0] if has_direct else NO_DIRECT_MATCH,
+            "EGID-Hauptkategorie": all_categories[0] if has_direct or token in assigned else NO_DIRECT_MATCH,
             "Alle vorkommenden Matching-Kategorien": "\n".join(all_categories),
-            "Zugehörige GVBSIDs": "\n".join(sorted(direct[token])),
-            "Anzahl unterschiedlicher GVBSIDs": len(direct[token]),
+            "Zugehörige GVBSIDs": "\n".join(sorted(direct[token] | assigned_gvbsids[token])),
+            "Anzahl unterschiedlicher GVBSIDs": len(direct[token] | assigned_gvbsids[token]),
             "Nur über Hausnummernzusatz erkannt": "Ja" if only_suffix else "Nein",
             "Bemerkung": " ".join(remarks),
             "_addresses": addresses,
@@ -161,7 +174,9 @@ def summarize_coverage(rows):
     statuses = Counter()
     for row in rows:
         if row["Automatisch zugeordnet"] == "Ja":
-            if row["Direkter GVBS-Adresskandidat vorhanden"] != "Ja":
+            if (row["Direkter GVBS-Adresskandidat vorhanden"] != "Ja"
+                    and not (row["Nur über Hausnummernzusatz erkannt"] == "Ja"
+                             and row["EGID-Hauptkategorie"] == gvbs.SUFFIX_PAIR_AUTO)):
                 raise ValueError("Automatische Zuordnung ohne direkten Adresskandidaten.")
             statuses[AUTOMATIC] += 1
         elif row["Direkter GVBS-Adresskandidat vorhanden"] == "Ja":
@@ -206,7 +221,7 @@ def save_coverage_excel(path, rows, issues):
     missing.append(MISSING_COLUMNS)
     for row in rows:
         overview.append([row[column] for column in OVERVIEW_COLUMNS])
-        if row["Direkter GVBS-Adresskandidat vorhanden"] == "Nein":
+        if row["Direkter GVBS-Adresskandidat vorhanden"] == "Nein" and row["Automatisch zugeordnet"] == "Nein":
             # Jede Adresse bleibt als eigene Zeile innerhalb der Zelle erhalten.
             addresses = row["_addresses"]
             detail = {
@@ -235,21 +250,24 @@ def save_coverage_excel(path, rows, issues):
          "Bei mehreren Kategorien direkter Kandidaten gilt die oben aufgeführte statistische Priorität.",
          "Jede EGID wird genau einmal bei ihrer Hauptkategorie gezählt. Die GVBSID-Matchingregeln bleiben unverändert."),
         ("Alle vorkommenden Matching-Kategorien",
-         "Alle Kategorien der GVBSID-Zeilen, in denen diese EGID als direkter Kandidat vorkommt.",
+         "Alle Kategorien der GVBSID-Zeilen, in denen diese EGID als direkter Kandidat "
+         "oder als automatisch zugeordneter .1-Suffix-Kandidat vorkommt.",
          "Die Kategoriedefinitionen oben beschreiben diese GVBSID-Zeilen. Mehrere Beziehungen zählen dieselbe EGID nicht mehrfach."),
         (AUTOMATIC,
          "Das Matching hat diese EGID tatsächlich eingetragen und Automatische Zuordnung auf Ja gesetzt. "
-         "Die Kategorie muss automatisch zuordnen; die EGID muss direkter Kandidat und Teil des GWR-Bestands sein.",
+         "Die Kategorie muss automatisch zuordnen; die EGID muss Teil des GWR-Bestands und direkter Kandidat "
+         "oder der über die Kubatur-Paarregel zugeordnete .1-Suffix-Kandidat sein.",
          "Abdeckungszustand A. Mindestens eine gültige tatsächliche Zuordnung genügt, auch bei weiteren nicht automatisch zugeordneten Kandidatenbeziehungen."),
         (DIRECT_ONLY,
          "Mindestens eine GVBSID hat diese EGID als direkten Kandidaten; es liegt keine gültige automatische Zuordnung vor.",
          "Abdeckungszustand B. Zusammen mit A und C ergibt sich der gesamte EGID-Bestand."),
         (NO_CANDIDATE,
-         "Die EGID besitzt keinen direkten GVBS-Adresskandidaten, auch wenn eine Beziehung über Hausnummernzusätze besteht.",
+         "Die EGID besitzt weder einen direkten GVBS-Adresskandidaten noch eine automatische Zuordnung über die Kubatur-Paarregel.",
          "Abdeckungszustand C. Alle diese EGIDs stehen zusätzlich im Blatt EGID-ohne-GVBSID."),
         ("Nur über Hausnummernzusatz erkannt",
          "Die EGID wurde ausschliesslich als zusätzliche EGID über einen Hausnummernzusatz erkannt und besitzt keinen direkten Kandidaten.",
-         "Teilmenge von C; nicht zusätzlich zur Gesamtzahl addieren. Zugehörige GVBSIDs stehen im Blatt EGID-ohne-GVBSID."),
+         "Teil von A bei automatischer Kubatur-Paarzuordnung, sonst Teilmenge von C; nicht zusätzlich zur Gesamtzahl addieren. "
+         "Nicht zugeordnete Fälle stehen im Blatt EGID-ohne-GVBSID."),
         ("Gesamtzahl bestehender EGIDs",
          "Alle unterschiedlichen EGIDs aus GWR-building mit GSTAT = 1004, einschliesslich EGIDs ohne Adresse oder EGRID.",
          "Eine Zeile pro EGID. Sämtliche vorhandenen GWR-Adressen und EGRIDs werden vollständig ausgewiesen."),

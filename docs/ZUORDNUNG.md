@@ -28,7 +28,12 @@ unverändert und unabhängig vom Zuordnungswerkzeug.
    **Neue erstellen** eine neue Datei an. Speicherorte ausserhalb des Repositories
    sind zur Laufzeit ausdrücklich möglich. Vorhandene Dateien werden bei der
    Neuerstellung auch nach einer Dialogbestätigung nicht überschrieben.
-2. **Excel laden** erwartet das Blatt `review_address_suffix`. Originalspalten
+2. **Excel laden** übernimmt die Blätter `review_address_suffix` und
+   `address_suffix_pair_lt4`, soweit vorhanden. Das zweite Blatt enthält orange
+   Adress-Suffix-Paare mit Kubaturverhältnis unter 4 zur manuellen Prüfung.
+   Ocker markierte Paare aus `address_suffix_pair_ge4` sind bereits automatisch
+   zugeordnet und werden nicht importiert. Beide Prüffallblätter müssen dieselben
+   Spalten enthalten. Originalspalten
    und Zellwerte werden in SQLite gespeichert. Pro GVBSID ist eine eindeutige
    Importzeile erforderlich. Alternativ aktiviert **Gespeicherte Daten
    aktivieren** die bereits importierten Fälle ohne erneutes Excel-Lesen.

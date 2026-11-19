@@ -69,7 +69,8 @@ class CoverageTests(unittest.TestCase):
     def test_all_categories_full_inventory_and_balances(self):
         rows, issues, matching = self.analyze_fixture()
         self.assertEqual(issues, [])
-        self.assertEqual({row["Matching-Kategorie"] for row in matching}, {item[0] for item in gvbs.CATEGORIES})
+        self.assertEqual({row["Matching-Kategorie"] for row in matching},
+                         {item[0] for item in gvbs.CATEGORIES} - {gvbs.SUFFIX_PAIR_AUTO, gvbs.SUFFIX_PAIR_REVIEW})
         self.assertEqual(len(rows), 14)
         self.assertEqual({row["EGID"] for row in rows}, set(range(1, 15)))
         categories, statuses = coverage.summarize_coverage(rows)
@@ -245,13 +246,13 @@ class WorkbookTests(unittest.TestCase):
             self.assertEqual(sheet.auto_filter.ref, sheet.dimensions)
         self.assertEqual(workbook.worksheets[0]["C2"].number_format, "0.00%")
         notes = list(workbook["Kategorien-Hinweise"].values)
-        category_notes = notes[1:10]
-        self.assertEqual([row[0] for row in category_notes], list(range(1, 10)))
+        category_notes = notes[1:1 + len(coverage.CATEGORY_PRIORITY)]
+        self.assertEqual([row[0] for row in category_notes], list(range(1, 1 + len(coverage.CATEGORY_PRIORITY))))
         self.assertEqual([row[1] for row in category_notes], list(coverage.CATEGORY_PRIORITY))
         automatic_notes = [row for row in category_notes if row[1] in gvbs.AUTO_CATEGORIES]
-        self.assertEqual(len(automatic_notes), 4)
+        self.assertEqual(len(automatic_notes), len(gvbs.AUTO_CATEGORIES))
         self.assertTrue(all("tatsächlicher Zuordnung" in row[3] for row in automatic_notes))
-        explanations = {row[1]: row[2:] for row in notes[10:]}
+        explanations = {row[1]: row[2:] for row in notes[1 + len(coverage.CATEGORY_PRIORITY):]}
         self.assertIn("Teilmenge von C", explanations["Nur über Hausnummernzusatz erkannt"][1])
         self.assertIn("A + B + C", explanations["Kontrollsummen"][0])
         self.assertEqual(workbook["Kategorien-Hinweise"]["B2"].fill.fgColor.rgb, "00E2F0D9")
