@@ -41,3 +41,11 @@ body.top-panel-ready #workspace{padding-top:var(--top-panel-edge)}
 tr.has-category td{background:var(--category-tint)}
 tr.has-category td:first-child{border-left:5px solid var(--category-color);background:#fff;background:linear-gradient(var(--category-tint),var(--category-tint)),#fff}
 .row-finished.has-category td:first-child{color:#526e78}
+.matrix-wrap th.egid-locked,.matrix-wrap td.egid-locked,.matrix-wrap .egid-locked.selected-egid{background:#e7eaed!important;color:#65727c!important}
+.egid-locked .egid-button,.egid-locked .gwr-table-address{color:#65727c}
+.egid-lock-label{display:block;max-width:280px;font-size:11px;font-weight:600;white-space:normal;margin-top:6px}
+.egid-locked input[type=checkbox]{accent-color:#7b858d;cursor:not-allowed}
+.egid-label.egid-locked{background:#e7eaed;color:#65727c;border-color:#a0a9b0}
+.assignment-lock-note{padding:10px 12px;border:1px solid #c6cdd2;border-radius:6px;background:#eef0f2;color:#465660;font-size:12px;line-height:1.6}
+.assignment-conflict{max-width:300px;font-size:12px;white-space:normal;line-height:1.5}
+.assignment-conflict button{white-space:normal;font-size:12px}

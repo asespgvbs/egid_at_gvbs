@@ -197,7 +197,7 @@ class SuffixPairTests(unittest.TestCase):
             workbook = self.workbook(fixture, self.evaluate(fixture))
             with patch.object(store, "load_workbook", return_value=workbook):
                 if expected:
-                    _, records = store.read_review_excel(Path("synthetic-not-created.xlsx"))
+                    _, records, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))
                     self.assertEqual([row["gvbsid"] for row in records], expected)
                 else:
                     with self.assertRaises(store.ReviewError):
@@ -216,7 +216,7 @@ class SuffixPairTests(unittest.TestCase):
         fixture[4]["SYNTHETIC-SECOND"] = {900000003, 900000004}
         workbook = self.workbook(fixture, self.evaluate(fixture))
         with patch.object(store, "load_workbook", return_value=workbook):
-            _, records = store.read_review_excel(Path("synthetic-not-created.xlsx"))
+            _, records, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))
         self.assertEqual({row["gvbsid"] for row in records}, {
             "SYNTHETIC-SINGLE-2", "SYNTHETIC-PAIR-0", "SYNTHETIC-PAIR-1"})
 
@@ -286,7 +286,7 @@ class SuffixPairTests(unittest.TestCase):
         self.assertEqual(statuses[abdeckung.DIRECT_ONLY], 1)
         self.assertEqual(statuses[abdeckung.NO_CANDIDATE], 2)
         with patch.object(store, "load_workbook", return_value=workbook):
-            _, imported = store.read_review_excel(Path("synthetic-not-created.xlsx"))
+            _, imported, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))
         self.assertEqual([row["gvbsid"] for row in imported], ["SYNTHETIC-PAIR-0"])
 
     def test_single_category_sheet_can_be_imported_on_its_own(self):
@@ -296,7 +296,7 @@ class SuffixPairTests(unittest.TestCase):
             if name != matching.SUFFIX_SINGLE_REVIEW:
                 del workbook[name]
         with patch.object(store, "load_workbook", return_value=workbook):
-            _, imported = store.read_review_excel(Path("synthetic-not-created.xlsx"))
+            _, imported, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))
         self.assertEqual([row["gvbsid"] for row in imported], ["SYNTHETIC-PAIR-0"])
 
 

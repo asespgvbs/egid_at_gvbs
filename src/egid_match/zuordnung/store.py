@@ -18,6 +18,8 @@ STATUSES = ("Offen", "Abgeschlossen", "Unklar", "Zurückgestellt", "Keine Zuordn
 FINISHED = {"Abgeschlossen", "Keine Zuordnung möglich"}
 SHEET = "review_address_suffix"
 PRODUCT = "egid-match-manual-review"
+AUTOMATIC_SHEET = "Automatische Zuordnungen"
+AUTOMATIC_META = "automatic_egids"
 
 
 def _encode(value):
@@ -83,6 +85,38 @@ def prepare_rows(headers, rows):
     return headers, prepared
 
 
+def read_automatic_egids(workbook):
+    """Globale Sperrliste aus dem vollständigen Matching oder einem App-Export."""
+    blocked = set()
+    known = False
+    if "Matching" in workbook.sheetnames:
+        known = True
+        rows = workbook["Matching"].iter_rows(values_only=True)
+        headers = [matching.txt(value) for value in next(rows, ())]
+        required = ("EGID", "Automatische Zuordnung", "Matching-Kategorie")
+        if any(headers.count(name) != 1 for name in required):
+            raise ReviewError("Das Blatt Matching benötigt eindeutige Spalten EGID, Automatische Zuordnung und Matching-Kategorie.")
+        for row in rows:
+            fields = dict(zip(headers, row))
+            egid = matching.txt(fields.get("EGID"))
+            automatic = matching.txt(fields.get("Automatische Zuordnung")) == "Ja"
+            category = matching.txt(fields.get("Matching-Kategorie"))
+            if not egid and not automatic and category not in matching.AUTO_CATEGORIES:
+                continue
+            if not egid or not automatic or category not in matching.AUTO_CATEGORIES:
+                raise ReviewError("Das Blatt Matching enthält eine widersprüchliche automatische EGID-Zuordnung.")
+            blocked.add(egid_text(egid))
+    if AUTOMATIC_SHEET in workbook.sheetnames:
+        known = True
+        rows = workbook[AUTOMATIC_SHEET].iter_rows(values_only=True)
+        if tuple(next(rows, ())) != ("EGID",):
+            raise ReviewError("Das Blatt Automatische Zuordnungen benötigt genau die Spalte EGID.")
+        for row in rows:
+            if row and matching.txt(row[0]):
+                blocked.add(egid_text(row[0]))
+    return blocked if known else None
+
+
 def read_review_excel(path):
     workbook = load_workbook(path, read_only=True, data_only=False)
     try:
@@ -99,7 +133,8 @@ def read_review_excel(path):
                 raise ReviewError("Die Prüffallblätter müssen dieselben Spalten enthalten.")
             headers = sheet_headers
             row_sets.append(rows)
-        return prepare_rows(headers, chain.from_iterable(row_sets))
+        headers, prepared = prepare_rows(headers, chain.from_iterable(row_sets))
+        return headers, prepared, read_automatic_egids(workbook)
     finally:
         workbook.close()
 
@@ -160,9 +195,15 @@ class ReviewStore:
                 PRIMARY KEY (gvbsid, egid))""")
             connection.executemany("INSERT INTO review_meta VALUES (?, ?)", [("product", PRODUCT), ("version", "1"), ("headers", "[]")])
 
-    def import_rows(self, headers, rows):
+    def import_rows(self, headers, rows, *, automatic_egids=None):
         headers, prepared = prepare_rows(headers, rows)
+        blocked = None if automatic_egids is None else {egid_text(value) for value in automatic_egids}
         with self.connection(write=True) as connection:
+            if blocked is not None:
+                previous_blocked = self._automatic_egids(connection)
+                blocked.update(previous_blocked or ())
+                connection.execute("INSERT INTO review_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                   (AUTOMATIC_META, encode(sorted(blocked, key=int))))
             previous = decode(connection.execute("SELECT value FROM review_meta WHERE key='headers'").fetchone()[0])
             combined = previous + [header for header in headers if header not in previous]
             connection.execute("UPDATE review_meta SET value=? WHERE key='headers'", (encode(combined),))
@@ -179,9 +220,21 @@ class ReviewStore:
         return len(prepared)
 
     def import_excel(self, path):
-        headers, prepared = read_review_excel(path)
+        headers, prepared, blocked = read_review_excel(path)
+        if blocked is None:
+            raise ReviewError("Bitte die vollständige Matching-Datei mit dem Blatt Matching laden. "
+                              "Ohne die automatischen Zuordnungen können EGID nicht sicher gesperrt werden.")
         # prepare_rows wird für denselben vollständig geprüften Originalinhalt verwendet.
-        return self.import_rows(headers, [list(record["raw"].values()) for record in prepared])
+        return self.import_rows(headers, [list(record["raw"].values()) for record in prepared], automatic_egids=blocked)
+
+    @staticmethod
+    def _automatic_egids(connection):
+        row = connection.execute("SELECT value FROM review_meta WHERE key=?", (AUTOMATIC_META,)).fetchone()
+        return None if row is None else {egid_text(value) for value in decode(row[0])}
+
+    def automatic_egids(self):
+        with self.connection() as connection:
+            return self._automatic_egids(connection)
 
     def records(self):
         with self.connection() as connection:
@@ -208,6 +261,9 @@ class ReviewStore:
             raise ReviewError("Keine Entscheidungen zum Speichern vorhanden.")
         seen = set()
         with self.connection(write=True) as connection:
+            blocked = self._automatic_egids(connection)
+            if blocked is None:
+                raise ReviewError("Bitte zuerst die vollständige Matching-Datei importieren, damit automatisch zugeteilte EGID gesperrt sind.")
             for decision in decisions:
                 gvbsid = matching.txt(decision.get("gvbsid"))
                 if gvbsid in seen:
@@ -222,6 +278,9 @@ class ReviewStore:
                 if not isinstance(values, list):
                     raise ReviewError("Die Zuordnung muss eine Liste von EGID sein.")
                 assigned = {egid_text(value) for value in values}
+                if assigned & blocked:
+                    raise ReviewError("Diese EGID sind bereits automatisch zugeteilt und für manuelle Zuordnungen gesperrt: "
+                                      + ", ".join(sorted(assigned & blocked, key=int)))
                 if not assigned <= set(allowed_egids):
                     raise ReviewError("Eine EGID gehört nicht zu den verfügbaren Kandidaten oder verlässlich geladenen Geodaten.")
                 status = decision.get("status", "Abgeschlossen" if assigned else "Keine Zuordnung möglich")
@@ -244,6 +303,7 @@ class ReviewStore:
         # Ein gemeinsamer Lese-Snapshot verhindert einen gemischten Bearbeitungsstand.
         with self.connection() as connection:
             connection.execute("BEGIN")
+            blocked = self._automatic_egids(connection)
             headers = decode(connection.execute("SELECT value FROM review_meta WHERE key='headers'").fetchone()[0])
             records = [dict(row) for row in connection.execute("SELECT * FROM review_records ORDER BY position, gvbsid")]
             assigned = {}
@@ -264,6 +324,11 @@ class ReviewStore:
         relations.append(["GVBSID", "Zweckbestimmung", "EGID", "Bearbeitungsstatus", "Kommentar"])
         pending = workbook.create_sheet("Offene Fälle")
         pending.append(headers + extras)
+        if blocked is not None:
+            automatic = workbook.create_sheet(AUTOMATIC_SHEET)
+            automatic.append(["EGID"])
+            for egid in sorted(blocked, key=int):
+                automatic.append([egid])
         for record in records:
             raw = decode(record["raw"])
             values = [raw.get(header) for header in headers] + [", ".join(assigned.get(record["gvbsid"], [])), record["status"], record["comment"], record["updated_at"]]

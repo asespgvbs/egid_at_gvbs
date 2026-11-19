@@ -64,11 +64,97 @@ class SyntheticMemory(unittest.TestCase):
 
     def store(self):
         store = self.empty_store()
-        store.import_rows(HEADERS, VALUES)
+        store.import_rows(HEADERS, VALUES, automatic_egids=set())
         return store
 
 
 class StoreTests(SyntheticMemory):
+    def matching_workbook(self, automatic_rows):
+        from openpyxl import Workbook
+        workbook = Workbook()
+        workbook.active.title = "review_address_suffix"
+        workbook.active.append(HEADERS)
+        for values in VALUES:
+            workbook.active.append(values)
+        matching_sheet = workbook.create_sheet("Matching")
+        matching_sheet.append(["EGID", "Automatische Zuordnung", "Matching-Kategorie"])
+        for row in automatic_rows:
+            matching_sheet.append(row)
+        self.addCleanup(workbook.close)
+        return workbook
+
+    def test_full_matching_import_persists_global_automatic_locks(self):
+        workbook = self.matching_workbook([[101, "Ja", "perfect_match"], [999, "Ja", "address_suffix_pair_ge4"],
+                                          [None, "Nein", "review_address_suffix"]])
+        store = self.empty_store()
+        with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook):
+            self.assertEqual(store.import_excel(self.folder / "synthetic.xlsx"), 3)
+        self.assertEqual(store.automatic_egids(), {"101", "999"})
+        reopened = MemoryStore(store.path, connection=store.memory)
+        reopened.open()
+        self.assertEqual(reopened.automatic_egids(), {"101", "999"})
+
+    def test_automatic_locks_survive_reimport_and_export_round_trip(self):
+        store = self.store()
+        store.import_rows(HEADERS, VALUES, automatic_egids={"101"})
+        store.import_rows(HEADERS, VALUES, automatic_egids={"999"})
+        self.assertEqual(store.automatic_egids(), {"101", "999"})
+        workbook = store.export_workbook()
+        self.addCleanup(workbook.close)
+        self.assertEqual(list(workbook["Automatische Zuordnungen"].values), [("EGID",), ("101",), ("999",)])
+        second = self.empty_store(self.folder / "synthetic-second.sqlite")
+        with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook):
+            second.import_excel(self.folder / "synthetic-export.xlsx")
+        self.assertEqual(second.automatic_egids(), {"101", "999"})
+
+    def test_automatic_lock_rejects_forged_allowed_candidates_and_rolls_back_batch(self):
+        store = self.store()
+        store.import_rows(HEADERS, VALUES, automatic_egids={"102"})
+        before = store.records()
+        with self.assertRaisesRegex(ReviewError, "automatisch zugeteilt"):
+            store.save([
+                {"gvbsid": "SYNTHETIC-1", "version": before[0]["version"], "assigned": ["101"]},
+                {"gvbsid": "SYNTHETIC-2", "version": before[1]["version"], "assigned": ["102"]},
+            ], {"101", "102"})
+        self.assertEqual(store.records(), before)
+
+    def test_unknown_automatic_assignments_block_saving_and_incomplete_excel_import(self):
+        store = self.empty_store()
+        store.import_rows(HEADERS, VALUES)
+        self.assertIsNone(store.automatic_egids())
+        with self.assertRaisesRegex(ReviewError, "Matching-Datei"):
+            store.save([{"gvbsid": "SYNTHETIC-1", "version": 1, "assigned": []}], {"101"})
+        workbook = self.matching_workbook([])
+        del workbook["Matching"]
+        before = store.records()
+        with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook), self.assertRaises(ReviewError):
+            store.import_excel(self.folder / "synthetic-incomplete.xlsx")
+        self.assertEqual(store.records(), before)
+        self.assertIsNone(store.automatic_egids())
+
+    def test_invalid_matching_locks_do_not_change_records_or_metadata(self):
+        store = self.store()
+        before = store.records()
+        for row in ([101, "Nein", "perfect_match"], [None, "Ja", "perfect_match"],
+                    [101, "Ja", "review_address_suffix"], ["=SYNTHETIC()", "Ja", "perfect_match"]):
+            with self.subTest(row=row):
+                workbook = self.matching_workbook([row])
+                with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook), self.assertRaises(ReviewError):
+                    store.import_excel(self.folder / "synthetic-invalid.xlsx")
+                self.assertEqual(store.records(), before)
+                self.assertEqual(store.automatic_egids(), set())
+
+    def test_import_preserves_existing_manual_assignment_but_blocks_resaving_conflict(self):
+        store = self.store()
+        store.save([{"gvbsid": "SYNTHETIC-1", "version": 1, "assigned": ["101"]}], {"101"})
+        store.import_rows(HEADERS, VALUES, automatic_egids={"101"})
+        record = store.records()[0]
+        self.assertEqual(record["assigned"], ["101"])
+        with self.assertRaises(ReviewError):
+            store.save([{"gvbsid": record["gvbsid"], "version": record["version"], "assigned": ["101"]}], {"101"})
+        store.save([{"gvbsid": record["gvbsid"], "version": record["version"], "assigned": []}], set())
+        self.assertEqual(store.records()[0]["assigned"], [])
+
     def test_new_database_never_overwrites_existing_file(self):
         path = self.folder / "existing.sqlite"
         with patch.object(Path, "open", side_effect=FileExistsError) as exclusive_open, self.assertRaises(FileExistsError):
@@ -152,7 +238,7 @@ class StoreTests(SyntheticMemory):
         store.import_rows(headers, [values])
         workbook = store.export_workbook()
         try:
-            self.assertEqual(workbook.sheetnames, ["review_address_suffix", "Zuordnungen", "Offene Fälle"])
+            self.assertEqual(workbook.sheetnames, ["review_address_suffix", "Zuordnungen", "Offene Fälle", "Automatische Zuordnungen"])
             exported = list(workbook.worksheets[0].values)
             self.assertEqual(exported[1][:len(values)], tuple(values))
             self.assertEqual(exported[2][8], 0)
@@ -185,6 +271,7 @@ class StoreTests(SyntheticMemory):
         workbook.active.append(HEADERS)
         for values in VALUES:
             workbook.active.append(values)
+        workbook.create_sheet("Matching").append(["EGID", "Automatische Zuordnung", "Matching-Kategorie"])
         store = self.empty_store()
         with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook):
             self.assertEqual(store.import_excel(path), 3)
