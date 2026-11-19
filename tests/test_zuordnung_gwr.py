@@ -10,11 +10,65 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 from egid_match.zuordnung.geometrie import GeometryError
-from egid_match.zuordnung.gwr import APPROXIMATION, gwr_point, read_gwr_addresses
+from egid_match.zuordnung.gwr import APPROXIMATION, gwr_point, read_gwr_addresses, read_gwr_volumes
 from egid_match.zuordnung.store import ReviewError
 
 
 class GwrTests(unittest.TestCase):
+    def test_volumes_are_read_only_by_exact_egid_and_ambiguous_values_are_omitted(self):
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE TABLE building (EGID INTEGER, GVOL, GSTAT INTEGER)")
+        connection.executemany("INSERT INTO building VALUES (?, ?, ?)", [
+            (101, 1250, 1004), (101, 1250, 1004), (102, None, 1004),
+            (103, 25.5, 1004), (104, 0, 1004), (105, -1, 1004),
+            (106, "SYNTHETIC-INVALID", 1004), (107, float("inf"), 1004),
+            (108, 100, 1004), (108, 200, 1004), (109, 999, 1005),
+            (110, 123, 1004),
+        ])
+        connection.commit()
+        denied = {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE,
+                  sqlite3.SQLITE_CREATE_TABLE, sqlite3.SQLITE_DROP_TABLE}
+        connection.set_authorizer(lambda action, *args: sqlite3.SQLITE_DENY if action in denied else sqlite3.SQLITE_OK)
+        tracked = Mock(wraps=connection)
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=tracked) as connect:
+            volumes = read_gwr_volumes(ROOT / "synthetic-not-created.sqlite", range(101, 110))
+        self.assertEqual(volumes, {"101": 1250, "102": None, "103": 25.5, "104": 0,
+                                   "105": None, "106": None, "107": None, "108": None, "109": None})
+        self.assertTrue(connect.call_args.args[0].endswith("?mode=ro"))
+        self.assertTrue(connect.call_args.kwargs["uri"])
+        query = next(call for call in tracked.execute.call_args_list if call.args[0].startswith("SELECT"))
+        self.assertIn("WHERE GSTAT = 1004 AND EGID IN (", query.args[0])
+        self.assertEqual(query.args[1], [str(value) for value in range(101, 110)])
+        tracked.close.assert_called_once()
+
+    def test_empty_or_invalid_volume_request_never_opens_database(self):
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect") as connect:
+            self.assertEqual(read_gwr_volumes(ROOT / "synthetic.sqlite", []), {})
+            with self.assertRaises(ReviewError):
+                read_gwr_volumes(ROOT / "synthetic.sqlite", ["101 OR 1=1"])
+        connect.assert_not_called()
+
+    def test_volume_errors_and_foreign_egids_close_connections(self):
+        for effects in ([None, None, [(999, 123)]], sqlite3.OperationalError("Synthetisch fehlendes GVOL")):
+            connection = Mock()
+            connection.execute.side_effect = effects
+            with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=connection), self.assertRaises(ReviewError):
+                read_gwr_volumes(ROOT / "synthetic.sqlite", ["101"])
+            connection.close.assert_called_once()
+
+    def test_volume_queries_use_parameterized_batches(self):
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE TABLE building (EGID INTEGER, GVOL INTEGER, GSTAT INTEGER)")
+        connection.executemany("INSERT INTO building VALUES (?, ?, 1004)", [(value, value * 10) for value in range(1001, 1502)])
+        connection.commit()
+        tracked = Mock(wraps=connection)
+        with patch("egid_match.zuordnung.gwr.sqlite3.connect", return_value=tracked):
+            volumes = read_gwr_volumes(ROOT / "synthetic.sqlite", range(1001, 1502))
+        self.assertEqual(volumes["1001"], 10010)
+        self.assertEqual(volumes["1501"], 15010)
+        queries = [call for call in tracked.execute.call_args_list if call.args[0].startswith("SELECT")]
+        self.assertEqual([len(call.args[1]) for call in queries], [500, 1])
+
     def test_addresses_are_read_only_and_selected_by_existing_egid(self):
         connection = sqlite3.connect(":memory:")
         connection.execute("CREATE TABLE entrance (EGID INTEGER, STRNAME TEXT, DEINR TEXT, DPLZ4 TEXT)")

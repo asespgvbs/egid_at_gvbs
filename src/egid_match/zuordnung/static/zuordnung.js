@@ -238,6 +238,10 @@ function gwrAddresses(building) {
   ).filter(Boolean))];
 }
 
+function gwrVolume(egid) {
+  return current?.geo?.volumes?.[egid] ?? current?.geo?.buildings?.find(building => building.egid === egid)?.volume;
+}
+
 function createRecordInfo() {
   const tooltip = node("div", undefined, "record-tooltip");
   tooltip.id = "record-tooltip"; tooltip.setAttribute("role", "tooltip"); tooltip.hidden = true;
@@ -329,7 +333,8 @@ function renderCase() {
   const table = node("table"), head = node("thead"), headings = node("tr");
   headings.append(node("th", "GVBS"));
   for (const egid of current.egids) {
-    const th = node("th", undefined, "gwr-column"), button = node("button", `${egid} (GWR)`, "egid-button");
+    const volumeText = ReviewEgidPoints.volumeText(gwrVolume(egid));
+    const th = node("th", undefined, "gwr-column"), button = node("button", `${egid} (GWR)${volumeText ? " · " + volumeText : ""}`, "egid-button");
     th.classList.toggle("egid-locked", isBlockedEgid(egid));
     button.type = "button"; button.dataset.egid = egid;
     button.addEventListener("click", () => selectEgid(egid));
@@ -518,7 +523,7 @@ function renderGeo() {
   ReviewEgidPoints.layer(L, features, {renderer: egidRenderer, map, index: markerIndex, selected: selectedEgid, onSelect: selectEgid,
     onPosition: (egid, position) => {
       allBounds.extend(position);
-      const content = ReviewEgidPoints.label(egid, gwrAddresses(buildingIndex.get(egid)), isBlockedEgid(egid));
+      const content = ReviewEgidPoints.label(egid, gwrAddresses(buildingIndex.get(egid)), isBlockedEgid(egid), gwrVolume(egid));
       const label = L.marker(position, {icon: L.divIcon({className: "", html: content, iconAnchor: [-8, 8]})}).addTo(mapLayers.labels);
       label.on("click", () => selectEgid(egid));
     }
@@ -537,7 +542,8 @@ function selectEgid(egid) {
   const addressStatus = current?.geo?.gwr_address_status;
   const addressText = addresses.length ? `GWR: ${addresses.join("; ")}` : `GWR: ${addressStatus?.code === "unreachable" ? addressStatus.message : "Keine Adresse zur EGID im GWR gefunden."}`;
   const statuses = [...new Set(buildings.map(value => value.gstat).filter(Boolean))];
-  $("egid-details").textContent = `EGID ${egid}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}${isBlockedEgid(egid) ? "\nAutomatisch zugeteilt · Für manuelle Vergabe gesperrt" : ""}`;
+  const volumeText = ReviewEgidPoints.volumeText(gwrVolume(egid));
+  $("egid-details").textContent = `EGID ${egid}${volumeText ? " · " + volumeText : ""}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}${isBlockedEgid(egid) ? "\nAutomatisch zugeteilt · Für manuelle Vergabe gesperrt" : ""}`;
 }
 
 async function loadGeo() {

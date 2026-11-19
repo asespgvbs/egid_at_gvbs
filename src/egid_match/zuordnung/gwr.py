@@ -44,6 +44,45 @@ def read_gwr_addresses(path, egids):
             connection.close()
 
 
+def read_gwr_volumes(path, egids):
+    """GVOL ausschliesslich über angefragte EGIDs; keine Schätzung oder Adresssuche."""
+    requested = sorted({egid_text(value) for value in egids}, key=int)
+    if not requested:
+        return {}
+    values = {egid: set() for egid in requested}
+    connection = None
+    try:
+        connection = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")
+        for start in range(0, len(requested), 500):
+            batch = requested[start:start + 500]
+            placeholders = ",".join("?" for _ in batch)
+            rows = connection.execute(
+                "SELECT DISTINCT EGID, GVOL FROM building WHERE GSTAT = 1004 "
+                f"AND EGID IN ({placeholders}) ORDER BY EGID, GVOL", batch)
+            for value, volume in rows:
+                egid = egid_text(value)
+                if egid not in batch:
+                    raise ReviewError("Die GWR-Volumenantwort enthält eine nicht angefragte EGID.")
+                if volume is None or isinstance(volume, bool):
+                    continue
+                try:
+                    number = float(volume)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if math.isfinite(number) and number >= 0:
+                    values[egid].add(int(number) if number.is_integer() else number)
+        # Mehrere widersprüchliche Werte werden nicht willkürlich ausgewählt.
+        return {egid: next(iter(volumes)) if len(volumes) == 1 else None
+                for egid, volumes in values.items()}
+    except (sqlite3.Error, OSError) as error:
+        raise ReviewError("Die konfigurierte GWR-Datenbank ist nicht lesbar oder enthält nicht building(EGID, GVOL, GSTAT).") from error
+    finally:
+        if connection is not None:
+            connection.close()
+
+
 def gwr_point(easting, northing, transformer_factory=None):
     """GKODE/GKODN (LV95), Ergebnis explizit [Longitude, Latitude]."""
     try:

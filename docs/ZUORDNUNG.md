@@ -159,7 +159,14 @@ bestehende `entrance.EGID`-Beziehung aus der GWR-Datenbank des Matchings.
 Strassenname, Hausnummer mit Zusatz und Postleitzahl werden unverändert
 übernommen. Links steht die GVBSID mit `(GVBSID)` und darunter `GVBS-Info:`
 mit Adresse, Zweckbestimmung und Gebäudevolumen als Aufzählung. Die EGID-Spalten tragen
-`(GWR)` und zeigen darunter die zugehörigen GWR-Adressen. Die Quelle wird ausschliesslich
+`(GWR)` und zeigen darunter die zugehörigen GWR-Adressen. Ist in der lokalen
+GWR-Datenbank ein eindeutiger, nicht negativer Wert `building.GVOL` für die EGID
+vorhanden, wird er als Zahl mit `m³` angehängt: beispielsweise
+`101 (GWR) · 1250 m³`. Auch Kartenbeschriftungen und die EGID in den Klickdetails
+erhalten diesen Zusatz. Ohne verfügbaren Wert entfällt er; die GVBS-Kubatur
+wird dafür nicht als Ersatz verwendet. Die Abfrage erfolgt schreibgeschützt
+und ausschliesslich für die betroffenen EGIDs bestehender Gebäude (`GSTAT = 1004`).
+Die Quelle wird ausschliesslich
 schreibgeschützt geöffnet; es gibt keine neue Adresszuordnung und keinen
 Adressimport. Ein anderer GWR-Pfad lässt sich mit `--gwr-db` beim Start
 angeben. Fehlt eine Adresse, bleibt sie ausdrücklich nicht verfügbar.

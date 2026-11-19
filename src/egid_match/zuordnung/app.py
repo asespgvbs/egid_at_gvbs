@@ -17,7 +17,7 @@ from importlib.resources import files
 from urllib.parse import parse_qs
 
 from .geo import DEFAULTS, GeoBS, cached_context
-from .gwr import read_gwr_addresses
+from .gwr import read_gwr_addresses, read_gwr_volumes
 from .store import FINISHED, ReviewStore, STATUSES
 from ..common import ConflictError, ReviewError
 from ..matching import CATEGORY_COLORS, DEFAULT_GWR_DB
@@ -358,6 +358,16 @@ class ReviewApplication:
             context["gwr_address_status"] = {"code": "complete", "message": "GWR-Adressen über die vorhandene entrance.EGID-Verknüpfung gelesen."}
         except ReviewError as error:
             context["gwr_address_status"] = {"code": "unreachable", "message": str(error)}
+        requested_egids = sorted(set(current["egids"]) | {building["egid"] for building in context["buildings"]}, key=int)
+        try:
+            volumes = read_gwr_volumes(session.gwr_path, requested_egids)
+            context["volumes"] = {egid: volumes.get(egid) for egid in requested_egids}
+            context["gwr_volume_status"] = {"code": "complete", "message": "GVOL über die vorhandene building.EGID-Verknüpfung gelesen."}
+        except ReviewError as error:
+            context["volumes"] = {}
+            context["gwr_volume_status"] = {"code": "unreachable", "message": str(error)}
+        for building in context["buildings"]:
+            building["volume"] = context["volumes"].get(building["egid"])
         with session.lock:
             if store is not session.store or revision != session.revision or session.geo_requests.get(current["selected"]) != request_id:
                 raise ConflictError("Datenbank oder Geokonfiguration wurde inzwischen geaendert. Bitte die Karte neu laden.")

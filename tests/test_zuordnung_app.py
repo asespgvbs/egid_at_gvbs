@@ -81,6 +81,9 @@ class AppTests(SyntheticMemory):
         address_patch = patch("egid_match.zuordnung.app.read_gwr_addresses", return_value={})
         self.gwr_addresses = address_patch.start()
         self.addCleanup(address_patch.stop)
+        volume_patch = patch("egid_match.zuordnung.app.read_gwr_volumes", return_value={})
+        self.gwr_volumes = volume_patch.start()
+        self.addCleanup(volume_patch.stop)
         self.app = create_app(self.folder / "preferences.json", self.dialogs, resume=False, geo_fetcher=self.fetch)
         self.app.token = "synthetic-local-test-token"
         self.client = LocalClient(self.app)
@@ -595,6 +598,41 @@ class AppTests(SyntheticMemory):
         self.assertEqual(self.database.records(), original)
         self.assertEqual(self.fetch.call_count, 2)
 
+    def test_gwr_volumes_are_loaded_for_table_candidates_and_additional_map_egids(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        original = self.database.records()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        self.gwr_volumes.return_value = {"101": 1200, "999": 25.5, "888": 999999}
+        response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["volumes"], {"101": 1200, "102": None, "999": 25.5})
+        self.assertEqual(response.json["buildings"][0]["volume"], 25.5)
+        self.gwr_volumes.assert_called_once_with(self.app.session.gwr_path, ["101", "102", "999"])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual(case["geo"]["volumes"], response.json["volumes"])
+        self.assertEqual(self.database.records(), original)
+
+    def test_unavailable_gwr_volume_does_not_remove_addresses_or_block_assignment(self):
+        self.select(activate=True)
+        self.app.session.config = geo_config()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        self.gwr_addresses.return_value = {"999": [["Synthetischer Testweg", "1", "0000"]]}
+        self.gwr_volumes.side_effect = ReviewError("Synthetisch fehlendes GVOL")
+        response = self.post("/api/geo", {"selected": "SYNTHETIC-1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["gwr_volume_status"]["code"], "unreachable")
+        self.assertEqual(response.json["volumes"], {})
+        self.assertIsNone(response.json["buildings"][0]["volume"])
+        self.assertEqual(response.json["buildings"][0]["addresses"], [["Synthetischer Testweg", "1", "0000"]])
+        self.assertEqual(self.post("/api/save", self.decision(assigned=["999"])).status_code, 200)
+
     def test_unavailable_gwr_address_source_keeps_map_geometry_and_reports_reason(self):
         self.select(activate=True)
         self.app.session.config = geo_config()
@@ -615,6 +653,7 @@ class AppTests(SyntheticMemory):
         app = create_app(self.folder / "synthetic-preferences.json", self.dialogs, resume=False, gwr_path=path)
         self.assertEqual(app.session.gwr_path, path)
         self.gwr_addresses.assert_not_called()
+        self.gwr_volumes.assert_not_called()
 
 
 if __name__ == "__main__":

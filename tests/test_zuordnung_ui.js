@@ -61,7 +61,7 @@ function runReviewUiTest(sources) {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
     records: [{gvbsid: "SYNTHETIC-1", address: "GVBS-Testweg 1, 0000", purpose: "Synthetisches Wohnhaus", raw: {"Matching-Kategorie": "review_address_suffix", Kubatur: 1250}, candidates: ["101"], suffix_candidates: ["102"], grids: ["CH-SYNTHETIC-1"], assigned: [], status: "Offen", comment: ""}],
-    geo: {parcels: [{key: "CH-SYNTHETIC-1", egrid: "CH-SYNTHETIC-1", geometry: {type: "Polygon", coordinates: [[[7.5,47.5],[7.6,47.5],[7.6,47.6],[7.5,47.5]]]}}], buildings: [
+    geo: {volumes: {"101": 2400}, parcels: [{key: "CH-SYNTHETIC-1", egrid: "CH-SYNTHETIC-1", geometry: {type: "Polygon", coordinates: [[[7.5,47.5],[7.6,47.5],[7.6,47.6],[7.5,47.5]]]}}], buildings: [
       {egid: "101", gstat: "1004", addresses: [["GWR-Testgasse", "9a", "0000"]], geometry: {type: "Point", coordinates: [7.55,47.52]}, relation: "Amtliche EGRID-Beziehung der Quelle", geometry_note: "Swisstopo-Näherung (nur Kartendarstellung, keine Grenzprüfung)", source_updated: "2020-01-01"},
       {egid: "102", gstat: "1004", addresses: [], geometry: {type: "Polygon", coordinates: [[[7.55,47.52],[7.56,47.52],[7.56,47.53],[7.55,47.52]]]}}
     ]}
@@ -77,7 +77,8 @@ function runReviewUiTest(sources) {
   check(identity.children[2].children[0].textContent === "Adresse: GVBS-Testweg 1, 0000", "GVBS-Adresse ausschliesslich aus dem GVBS-Datensatz anzeigen");
   check(identity.children[2].children[1].textContent === "Zweckbestimmung: Synthetisches Wohnhaus", "Zweckbestimmung unterhalb der Adresse anzeigen");
   check(identity.children[2].children[2].textContent === "Gebäudevolumen: 1250 m³", "Importierte Kubatur unterhalb der Zweckbestimmung anzeigen");
-  check(header.children[1].children[0].textContent === "101 (GWR)", "EGID als GWR kennzeichnen");
+  check(header.children[1].children[0].textContent === "101 (GWR) · 2400 m³", "GVOL direkt an die EGID-Beschriftung anhängen");
+  check(header.children[2].children[0].textContent === "102 (GWR)", "Bei fehlendem GVOL kein Volumen ergänzen und keine GVBS-Kubatur übernehmen");
   check(header.children[1].children[1].textContent === "GWR-Testgasse 9a 0000", "Original-GWR-Adresse unter der EGID anzeigen");
   check(header.children[2].children[1].textContent === "GWR-Adresse nicht verfügbar", "GVBS-Adresse niemals als GWR-Ersatz anzeigen");
   check(elements["left-pane"].style.getPropertyValue("--category-color") === "#FFF2CC", "Bearbeitungsbereich in der Farbe des ausgewählten Falls darstellen");
@@ -88,13 +89,14 @@ function runReviewUiTest(sources) {
   check(viewCalls[viewCalls.length - 1][0] === "fitBounds" && viewCalls[viewCalls.length - 1][2].maxZoom === 19, "Auch eine einzelne grosse Parzelle vollständig zeigen und Zoom 19 als Obergrenze erhalten");
   check(viewCalls[viewCalls.length - 1][2].padding[0] > 0, "Rand für die Abdunkelung um die Parzelle freihalten");
   check(layers.labels.layers.length === 2, "Beide EGID auf der Karte beschriften");
-  check(layers.labels.layers[0].options.icon.html.textContent === "101 - GWR-Testgasse 9a 0000", "Kartenbeschriftung enthält EGID und Originaladresse");
+  check(layers.labels.layers[0].options.icon.html.textContent === "101 - GWR-Testgasse 9a 0000 · 2400 m³", "Kartenbeschriftung enthält EGID, Originaladresse und GVOL");
   check(layers.labels.layers[1].options.icon.html.textContent === "102 - GWR-Adresse nicht verfügbar", "Fehlende GWR-Adresse auch auf der Karte kenntlich machen");
   const previousViewCalls = viewCalls.length;
   layers.labels.layers[0].events.click();
   const details = elements["egid-details"].textContent;
   check(details.includes("GSTAT 1004"), "Gebäudestatus in den Klickdetails erhalten");
   check(details.includes("GWR: GWR-Testgasse 9a 0000"), "Originaladresse in den Klickdetails erhalten");
+  check(details.includes("EGID 101 · 2400 m³"), "GVOL auch an die EGID in den Klickdetails anhängen");
   check(!details.includes("Amtliche EGRID") && !details.includes("Swisstopo") && !details.includes("Quellen-Exportdatum") && !details.includes("2020-01-01"), "Beziehungstext, Näherungshinweis und Exportdatum nicht anzeigen");
   check(viewCalls.length === previousViewCalls, "EGID-Klick verändert den Kartenausschnitt nicht");
   layers.buildings.layers[0].events.click();
