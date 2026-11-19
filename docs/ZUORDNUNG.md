@@ -28,11 +28,15 @@ unverändert und unabhängig vom Zuordnungswerkzeug.
    **Neue erstellen** eine neue Datei an. Speicherorte ausserhalb des Repositories
    sind zur Laufzeit ausdrücklich möglich. Vorhandene Dateien werden bei der
    Neuerstellung auch nach einer Dialogbestätigung nicht überschrieben.
-2. **Excel laden** übernimmt die Blätter `review_address_suffix` und
-   `address_suffix_pair_lt4`, soweit vorhanden. Das zweite Blatt enthält orange
-   Adress-Suffix-Paare mit Kubaturverhältnis unter 4 zur manuellen Prüfung.
-   Ocker markierte Paare aus `address_suffix_pair_ge4` sind bereits automatisch
-   zugeordnet und werden nicht importiert. Beide Prüffallblätter müssen dieselben
+2. **Excel laden** übernimmt die Blätter `review_address_suffix`,
+   `address_suffix_pair_lt4` und `review_suffix_single_building`, soweit vorhanden.
+   Das zweite Blatt enthält orange Adress-Suffix-Paare mit Kubaturverhältnis
+   unter 4 zur manuellen Prüfung. Das dritte Blatt enthält dunkelgelbe Prüffälle mit
+   genau einer Importzeile `Kontrollnummer-0` an der Hauptadresse und einer oder
+   mehreren zusätzlichen GWR-Suffixadressen. Diese Kontrollnummer kommt im
+   gesamten Import nur einmal vor; es erfolgt keine automatische Zuordnung.
+   Hellbraun markierte Paare aus `address_suffix_pair_ge4` sind bereits automatisch
+   zugeordnet und werden nicht importiert. Die Prüffallblätter müssen dieselben
    Spalten enthalten. Originalspalten
    und Zellwerte werden in SQLite gespeichert. Pro GVBSID ist eine eindeutige
    Importzeile erforderlich. Alternativ aktiviert **Gespeicherte Daten

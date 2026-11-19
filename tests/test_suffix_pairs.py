@@ -145,7 +145,7 @@ class SuffixPairTests(unittest.TestCase):
 
     def test_excel_assignments_summary_categories_and_colours(self):
         for volumes, category, color, automatic_count in (
-            ((400, 100), matching.SUFFIX_PAIR_AUTO, "00D6B656", 2),
+            ((400, 100), matching.SUFFIX_PAIR_AUTO, "00C4A484", 2),
             ((399, 100), matching.SUFFIX_PAIR_REVIEW, "00F4B183", 0),
         ):
             with self.subTest(category=category):
@@ -219,6 +219,85 @@ class SuffixPairTests(unittest.TestCase):
             _, records = store.read_review_excel(Path("synthetic-not-created.xlsx"))
         self.assertEqual({row["gvbsid"] for row in records}, {
             "SYNTHETIC-SINGLE-2", "SYNTHETIC-PAIR-0", "SYNTHETIC-PAIR-1"})
+
+    def test_single_building_zero_with_one_or_multiple_suffixes_stays_unassigned(self):
+        for suffixes in (("12.1",), ("12.2",), ("12a",), ("12.1", "12.2", "12a")):
+            with self.subTest(suffixes=suffixes):
+                fixture = synthetic_pair((None,), (0,), suffixes)
+                record = self.evaluate(fixture)[0]
+                self.assertEqual(record["Matching-Kategorie"], matching.SUFFIX_SINGLE_REVIEW)
+                self.assertIsNone(record["EGID"])
+                self.assertEqual(record["Automatische Zuordnung"], "Nein")
+                self.assertEqual(record["Anzahl EGID mit Hausnummernzusatz"], len(suffixes))
+                self.assertIn("Gebäudenummer 0", record["Matching-Zusammenfassung"])
+                self.assertNotIn("Kubaturverhältnis 0/1", record)
+
+    def test_single_building_category_requires_building_zero(self):
+        for building in (1, 2, "", None):
+            with self.subTest(building=building):
+                record = self.evaluate(synthetic_pair((400,), (building,)))[0]
+                self.assertNotEqual(record["Matching-Kategorie"], matching.SUFFIX_SINGLE_REVIEW)
+                self.assertIsNone(record["EGID"])
+
+    def test_single_building_category_rejects_duplicate_or_other_control_at_address(self):
+        for same_control in (True, False):
+            with self.subTest(same_control=same_control):
+                fixture = synthetic_pair((400,), (0,))
+                other = copy.deepcopy(fixture[0][0])
+                if not same_control:
+                    other["Kontrollnummer"] = "SYNTHETIC-OTHER"
+                    other["Strasse"] = "  SYNTHETISCHE TESTSTRASSE  "
+                    other["Hausnummer"] = " 12 "
+                fixture[0].append(other)
+                records = self.evaluate(fixture)
+                self.assertTrue(all(row["Matching-Kategorie"] == "review_address_suffix" for row in records))
+
+    def test_additional_building_elsewhere_or_invalid_row_prevents_single_category(self):
+        for number in (99, None):
+            with self.subTest(number=number):
+                fixture = synthetic_pair((400,), (0,))
+                fixture[0].append({**fixture[0][0], "Gebäudenummer": 1, "Hausnummer": number})
+                records = self.evaluate(fixture)
+                self.assertEqual(records[0]["Matching-Kategorie"], "review_address_suffix")
+                self.assertIsNone(records[0]["EGID"])
+
+    def test_single_without_suffix_keeps_existing_matching(self):
+        record = self.evaluate(synthetic_pair((None,), (0,), ()))[0]
+        self.assertEqual(record["Matching-Kategorie"], "perfect_match")
+        self.assertEqual(record["EGID"], 900000001)
+
+    def test_single_suffix_category_reaches_excel_coverage_and_manual_import(self):
+        fixture = synthetic_pair((None,), (0,), ("12.1", "12a"))
+        results = self.evaluate(fixture)
+        workbook = self.workbook(fixture, results)
+        category = matching.SUFFIX_SINGLE_REVIEW
+        self.assertEqual(workbook[category].max_row, 2)
+        self.assertEqual(workbook[category]["A2"].fill.fgColor.rgb, "00E6C200")
+        summary = {row[0]: row[1] for row in list(workbook["Zusammenfassung"].values)[1:]}
+        self.assertEqual(summary[category], 1)
+        self.assertEqual(summary["Automatisch zugeordnet"], 0)
+        outcome = list(workbook["Ergebnis"].values)
+        self.assertIsNone(outcome[1][outcome[0].index("EGID")])
+        rows, issues = abdeckung.analyze_coverage(set(fixture[2]), results, fixture[2], fixture[3])
+        self.assertEqual(issues, [])
+        categories, statuses = abdeckung.summarize_coverage(rows)
+        self.assertEqual(categories[category], 1)
+        self.assertEqual(statuses[abdeckung.AUTOMATIC], 0)
+        self.assertEqual(statuses[abdeckung.DIRECT_ONLY], 1)
+        self.assertEqual(statuses[abdeckung.NO_CANDIDATE], 2)
+        with patch.object(store, "load_workbook", return_value=workbook):
+            _, imported = store.read_review_excel(Path("synthetic-not-created.xlsx"))
+        self.assertEqual([row["gvbsid"] for row in imported], ["SYNTHETIC-PAIR-0"])
+
+    def test_single_category_sheet_can_be_imported_on_its_own(self):
+        fixture = synthetic_pair((None,), (0,))
+        workbook = self.workbook(fixture, self.evaluate(fixture))
+        for name in list(workbook.sheetnames):
+            if name != matching.SUFFIX_SINGLE_REVIEW:
+                del workbook[name]
+        with patch.object(store, "load_workbook", return_value=workbook):
+            _, imported = store.read_review_excel(Path("synthetic-not-created.xlsx"))
+        self.assertEqual([row["gvbsid"] for row in imported], ["SYNTHETIC-PAIR-0"])
 
 
 if __name__ == "__main__":

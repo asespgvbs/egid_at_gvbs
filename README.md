@@ -121,13 +121,14 @@ Die Spalte **`Kubatur`** bestimmt das Verhältnis `Kubatur 0 / Kubatur 1`:
 
 | Neue Kategorie | Verhältnis | Zuordnung | Farbe |
 | --- | --- | --- | --- |
-| `address_suffix_pair_ge4` | ≥ 4 | Gebäudenummer 0 → Haupt-EGID, Gebäudenummer 1 → `.1`-EGID | Ocker |
+| `address_suffix_pair_ge4` | ≥ 4 | Gebäudenummer 0 → Haupt-EGID, Gebäudenummer 1 → `.1`-EGID | Hellbraun |
 | `address_suffix_pair_lt4` | < 4 | Keine automatische Zuordnung; beide Fälle manuell prüfen | Orange |
 
 Beide Kubaturen müssen positive, endliche Zahlen sein. Fehlt eine Kubatur oder
-ist sie ungültig, bleibt der Fall in `review_address_suffix`. Dasselbe gilt bei
-einer oder mindestens drei Importzeilen zur Kontrollnummer und bei anderen
-Gebäudenummern. Die Originaladressen und direkten EGID-Kandidaten bleiben
+ist sie ungültig, bleibt das Paar in `review_address_suffix`. Dasselbe gilt bei
+mindestens drei Importzeilen zur Kontrollnummer und bei anderen Gebäudenummern.
+Einzelne Gebäude mit Nummer 0 erhalten gegebenenfalls die unten beschriebene
+eigene Prüfkategorie. Die Originaladressen und direkten EGID-Kandidaten bleiben
 erhalten. `Kubaturverhältnis 0/1`, `Zuordnungsadresse` und die Zusammenfassung
 dokumentieren die Paarentscheidung. Beide neuen Kategorien erscheinen auch in
 den Kategorieblättern, Hinweisen und Statistiken. Die allgemeine Prüfreihenfolge
@@ -140,11 +141,22 @@ vor der zusätzlichen Paarprüfung lautet:
 | 3 | `multiple_egid` | Nein |
 | 4 | `multiple_gvbsid_multiple_egid` | Nein |
 | 5 | `invalid_gwr_data` | Nein |
-| 6 | `review_address_suffix` | Nein |
-| 7 | `perfect_match` | Ja |
-| 8 | `super_match` | Ja |
-| 9 | `oneEgid_oneAddress_multipleGVBSIDs` | Ja |
-| 10 | `oneEgid_multipleAddresses_multipleGVBSIDs` | Ja |
+| 6 | `review_suffix_single_building` | Nein |
+| 7 | `review_address_suffix` | Nein |
+| 8 | `perfect_match` | Ja |
+| 9 | `super_match` | Ja |
+| 10 | `oneEgid_oneAddress_multipleGVBSIDs` | Ja |
+| 11 | `oneEgid_multipleAddresses_multipleGVBSIDs` | Ja |
+
+**`review_suffix_single_building`** (dunkelgelb, `#E6C200`) erfasst eine Hauptadresse mit genau
+einer Importzeile `Kontrollnummer-0`. Diese Kontrollnummer darf im gesamten Import
+kein weiteres Mal vorkommen, auch nicht mit Gebäudenummer 1 an einer anderen
+Adresse. Der eindeutige Hauptadress-Treffer hat auf derselben EGRID eine oder
+mehrere zusätzliche EGIDs mit Suffixadressen, für die keine eigene GVBSID
+importiert wurde. Nummerierte und Buchstabenzusätze sind zulässig; die Anzahl
+der Zusätze ist nicht begrenzt. Es erfolgt **keine automatische EGID-Zuordnung**,
+unabhängig von der Kubatur. Die Kategorie wird separat in Excel und der
+EGID-Abdeckung ausgewiesen und kann in die Zuordnungsapp importiert werden.
 
 Fehlende EGRID und Hausnummernzusatzkonflikte verhindern damit auch bei
 mehreren GVBSIDs eine automatische Zuordnung. `perfect_match` und
@@ -258,9 +270,10 @@ bestimmt ausschliesslich für die Statistik diese Priorität die Hauptkategorie:
 6. `address_suffix_pair_lt4`
 7. `multiple_egid`
 8. `multiple_gvbsid_multiple_egid`
-9. `review_address_suffix`
-10. `invalid_gwr_data`
-11. `kein direkter Adresstreffer`
+9. `review_suffix_single_building`
+10. `review_address_suffix`
+11. `invalid_gwr_data`
+12. `kein direkter Adresstreffer`
 
 Eine EGID zählt genau einmal als automatisch zugeordnet, als direkter
 Adresskandidat ohne automatische Zuordnung oder als EGID ohne direkten

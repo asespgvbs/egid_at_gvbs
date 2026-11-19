@@ -34,6 +34,7 @@ COLUMN_ALIASES = {
 }
 SUFFIX_PAIR_AUTO = "address_suffix_pair_ge4"
 SUFFIX_PAIR_REVIEW = "address_suffix_pair_lt4"
+SUFFIX_SINGLE_REVIEW = "review_suffix_single_building"
 CATEGORIES = [
     (
         "perfect_match",
@@ -81,13 +82,22 @@ CATEGORIES = [
         "mit Gebäudenummer 0 und 1 an derselben Hauptadresse. Eindeutige EGIDs für "
         "Hauptadresse und .1 auf derselben EGRID; keine weiteren konkurrierenden "
         "GVBSIDs oder Suffix-EGIDs. Beide Kubaturen sind positiv; Kubatur 0 / Kubatur 1 >= 4.",
-        "Automatisch: Gebäudenummer 0 zur Haupt-EGID, Gebäudenummer 1 zur .1-EGID (Ocker).",
+        "Automatisch: Gebäudenummer 0 zur Haupt-EGID, Gebäudenummer 1 zur .1-EGID (Hellbraun).",
     ),
     (
         SUFFIX_PAIR_REVIEW,
         "Dieselben eindeutigen Adress-Suffix-Paarbedingungen wie address_suffix_pair_ge4, "
         "aber Kubatur 0 / Kubatur 1 < 4.",
         "Keine automatische Zuordnung. Beide Gebäude manuell prüfen (Orange).",
+    ),
+    (
+        SUFFIX_SINGLE_REVIEW,
+        "An der Hauptadresse steht genau eine Importzeile mit Gebäudenummer 0. "
+        "Ihre Kontrollnummer kommt im gesamten Import nur einmal vor. Es gibt "
+        "einen eindeutigen direkten EGID-Treffer und auf derselben EGRID eine "
+        "oder mehrere zusätzliche EGIDs mit abgeleiteten Hausnummern, für deren "
+        "Adressen keine eigene GVBSID im Import steht.",
+        "Keine automatische EGID-Zuordnung, unabhängig von der Kubatur. Manuell prüfen.",
     ),
     (
         "review_address_suffix",
@@ -138,8 +148,9 @@ AUTO_CATEGORIES = {
     "oneEgid_multipleAddresses_multipleGVBSIDs",
 }
 CATEGORY_COLORS = {
-    SUFFIX_PAIR_AUTO: "D6B656",
+    SUFFIX_PAIR_AUTO: "C4A484",
     SUFFIX_PAIR_REVIEW: "F4B183",
+    SUFFIX_SINGLE_REVIEW: "E6C200",
     "perfect_match": "E2F0D9",
     "super_match": "DDEBF7",
     "review_address_suffix": "FFF2CC",
@@ -624,13 +635,19 @@ def create_summary(
             f"Besonderheiten: {besonderheiten}"
         )
 
-    if category == "review_address_suffix":
+    if category in ("review_address_suffix", SUFFIX_SINGLE_REVIEW):
+        single_building = (
+            " An der Hauptadresse steht ausschliesslich diese GVBSID mit Gebäudenummer 0; "
+            "ihre Kontrollnummer kommt im gesamten Import genau einmal vor. "
+            "Keine automatische EGID-Zuordnung."
+            if category == SUFFIX_SINGLE_REVIEW else ""
+        )
         return (
             f"{start} Weitere EGIDs mit Hausnummernzusatz auf "
             "derselben EGRID: "
             f"{suffix_conflicts_text(suffix_conflicts)}. "
             "Für diese Adressen fehlt im eingelesenen GVBS-Datensatz "
-            "eine eigene GVBSID."
+            f"eine eigene GVBSID.{single_building}"
         )
 
     if category in (
@@ -712,6 +729,9 @@ def match(
     gvbs_by_address = defaultdict(set)
     gvbs_by_egid = defaultdict(set)
     gvbs_addresses_by_id = defaultdict(set)
+    # Alle Importzeilen zählen, einschliesslich Duplikaten und ungültigen Zeilen.
+    control_counts = Counter(control for control, _ in gvbs_keys)
+    address_counts = Counter(keys)
     for key, gvbs_key, ok in zip(
         keys,
         gvbs_keys,
@@ -821,7 +841,7 @@ def match(
             )
         conflicts_by_row.append(suffix_conflicts)
         # ----------------------------------------------------
-        # SEQUENTIELLE PRÜFUNG: 1–6 OFFEN, 7–10 AUTOMATISCH
+        # PRÜFFÄLLE VOR AUTOMATISCHEN ZUORDNUNGEN
         # ----------------------------------------------------
         if not ok:
             category = "invalid_input"
@@ -834,7 +854,13 @@ def match(
         elif not grids:
             category = "invalid_gwr_data"
         elif suffix_conflicts:
-            category = "review_address_suffix"
+            category = (
+                SUFFIX_SINGLE_REVIEW
+                if gvbs_key[1] == "0"
+                and control_counts[gvbs_key[0]] == 1
+                and address_counts[key] == 1
+                else "review_address_suffix"
+            )
         elif (
             n_gvbs_for_egid == 1
             and n_gwr_addresses == 1
