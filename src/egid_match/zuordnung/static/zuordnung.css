@@ -81,9 +81,9 @@ tr.has-category td:first-child{border-left:5px solid var(--category-color);backg
 .case-summary-counts .case-counts{margin:0}
 .case-summary>.category-badge{margin-bottom:0}
 .package-selectors{display:grid;flex:1 1 270px;min-width:0;gap:8px;padding-top:6px}
-.package-selectors #queue-filter-bar,.package-selectors #queue-bar{gap:8px;margin:0}
+.package-selectors #queue-ratio-bar,.package-selectors #queue-filter-bar,.package-selectors #queue-bar{display:flex;align-items:center;gap:8px;margin:0}
 .package-selectors label{flex:0 0 88px;font-size:12px;color:#526e78}
-.package-selectors select{width:100%;min-width:0;padding:7px 8px}
+.package-selectors select{flex:1;width:100%;min-width:0;padding:7px 8px}
 #workspace{display:grid;grid-template-columns:minmax(0,var(--left)) 8px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"matrix divider panel" "matrix divider map"}
 .left-pane{grid-area:matrix}
 #divider{grid-area:divider}

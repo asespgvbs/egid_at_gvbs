@@ -1,7 +1,7 @@
 "use strict";
 
 // Nur Quellcode und synthetische DOM-/Leaflet-Objekte, kein Browser oder Dienst.
-function runReviewUiTest(sources) {
+async function runReviewUiTest(sources) {
   let assertions = 0;
   function check(value, message) {assertions++; if (!value) throw new Error(message);}
   class Element {
@@ -52,11 +52,12 @@ function runReviewUiTest(sources) {
     polygon(coordinates, options) {const result = layer(options); result.coordinates = coordinates; return result;}
   };
   let apiCalls = 0;
+  let syntheticApi = null;
   const points = new Function("document", sources["src/egid_match/zuordnung/static/egid_punkte.js"] + "\nreturn globalThis.ReviewEgidPoints;")(document);
-  const source = sources["src/egid_match/zuordnung/static/zuordnung.js"];
+  const source = sources["src/egid_match/zuordnung/static/zuordnung.js"].replace(/\r\n/g, "\n");
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,showEmptyQueue,configure(value,view,layers,items,filter='open'){current=value;selectedEgid=null;dirty.clear();queueView=filter;document.getElementById('queue-view').value=filter;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,configure(value,view,layers,items,filter='open',ratio='all'){current=value;selectedEgid=null;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
@@ -69,6 +70,12 @@ function runReviewUiTest(sources) {
   const layers = {parcels: group(), buildings: group(), markers: group(), labels: group(), mask: group()};
   ui.configure(value, map, layers);
   ui.renderCase();
+  check(ui.queueRequestPath() === "/api/queue?view=open&ratio=all", "Standardauswahl kombiniert offene Warteliste mit allen Verhältnissen");
+  check(!elements["queue-ratio"].disabled, "Verhältnisfilter bei aktiver Bearbeitung freischalten");
+  const markup = sources["src/egid_match/zuordnung/templates/zuordnung.html"];
+  check(markup.indexOf('id="queue-ratio-bar"') < markup.indexOf('id="queue-filter-bar"'), "Verhältnisfilter oberhalb der Warteliste anzeigen");
+  check(markup.includes('for="queue-ratio">GVBSID:EGID - Verhältnis</label>') &&
+    markup.includes('<option value="all">Alle Verhältnisse</option><option value="equal">Nur 1:1</option><option value="different">ungleich 1:1</option>'), "Gewünschte Beschriftung und alle drei Auswahltexte anzeigen");
   const table = elements.matrix.children[0], header = table.children[0].children[0], identity = table.children[1].children[0].children[0];
   check(elements["case-title"].textContent === "EGRID CH-SYNTHETIC-1", "Das EGRID-Paket in der Fallüberschrift kennzeichnen");
   check(elements["case-counts"].textContent === "(1 GVBSID/2 EGID)" && !elements["case-counts"].hidden, "Paketanzahlen direkt unter der EGRID anzeigen");
@@ -203,12 +210,18 @@ function runReviewUiTest(sources) {
   ui.switchQueueView("completed");
   check(elements["queue-view"].value === "open", "Abgebrochener Wartelistenwechsel stellt die bisherige Auswahl wieder her");
   check(ui.decisionPayload("Abgeschlossen").decisions.length === 3, "Abgebrochener Wartelistenwechsel erhält ungespeicherte Bearbeitungen");
+  elements["queue-ratio"].value = "equal";
+  await ui.switchQueueRatio("equal");
+  check(elements["queue-ratio"].value === "all" && ui.queueRequestPath() === "/api/queue?view=open&ratio=all", "Abgebrochener Verhältniswechsel erhält beide bisherigen Filter");
+  check(ui.decisionPayload("Abgeschlossen").decisions.length === 3 && !elements.dirty.hidden, "Abgebrochener Verhältniswechsel erhält ungespeicherte Paketbearbeitung");
   ui.configure({...value, records: statusRecords.map(record => ({...record, status: "Sonderfall"}))}, map, layers); ui.renderCase();
   check(elements.special.disabled && !elements.save.disabled, "Ein vollständig als Sonderfall markiertes Paket kann gemeinsam abgeschlossen werden");
   ui.configure({...value, records: [{...value.records[0], status: "Abgeschlossen"}]}, map, layers); ui.renderCase();
   check(elements.save.disabled && !elements.special.disabled, "Abgeschlossenen Fall als Sonderfall umtaggen können");
-  ui.configure(value, map, layers, [], "special"); ui.showEmptyQueue();
+  ui.configure(value, map, layers, [], "special", "different"); ui.showEmptyQueue();
   check(elements["case-title"].textContent.includes("Sonderfälle") && elements["queue-position"].textContent === "0 Pakete", "Leere Sonderfallwarteliste eindeutig benennen");
+  check(elements["empty-note"].textContent.includes("ungleich 1:1"), "Bei leerer Auswahl auch den aktiven Verhältnisfilter erklären");
+  check(ui.queueRequestPath() === "/api/queue?view=special&ratio=different", "Verhältnisfilter mit der gewählten Warteliste kombinieren");
   check(sources["src/egid_match/zuordnung/templates/zuordnung.html"].includes('id="special" class="danger"'), "Sonderfall-Knopf erhält die rote Darstellung");
   const packageQueue = [
     {gvbsid: "SYNTHETIC-1", package_id: "SYNTHETIC-1", package_index: 0},
@@ -227,6 +240,9 @@ function runReviewUiTest(sources) {
   ui.renderCase();
   check(ui.packageNavigation().previous === "SYNTHETIC-1" && ui.packageNavigation().next === null, "Zurück springt zum ersten offenen Fall des vorherigen Pakets");
   check(!elements.previous.disabled && elements.next.disabled, "Am letzten Paket nur Zurück aktivieren");
+  ui.configure({...value, selected: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2}, map, layers,
+    [packageQueue[1]], "open", "equal"); ui.renderCase();
+  check(elements.previous.disabled && elements.next.disabled && elements["queue-position"].textContent === "Paket 1 / 1", "Navigation berücksichtigt ausschliesslich die gefilterten Pakete");
   ui.configure({...value, package_id: "egrid:SYNTHETIC-A", package_index: 0}, map, layers, [
     {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-A", package_index: 0},
     {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-B", package_index: 1},
@@ -249,11 +265,53 @@ function runReviewUiTest(sources) {
   check(!elements["case-counts"].classList.contains("is-unbalanced"), "Verhältnis 1 zu 1 normal darstellen");
   ui.configure({...value, egids: []}, map, layers); ui.renderCase();
   check(elements["case-counts"].classList.contains("is-unbalanced"), "Fehlende EGID bei vorhandener GVBSID ebenfalls rot kennzeichnen");
+
+  const dynamicValue = JSON.parse(JSON.stringify({...value, package_id: "egrid:CH-SYNTHETIC-1", package_index: 0,
+    records: [value.records[0], {...value.records[0], gvbsid: "SYNTHETIC-2"}]}));
+  const refreshed = JSON.parse(JSON.stringify({...dynamicValue, egids: ["101", "102", "999"]}));
+  ui.configure(dynamicValue, map, layers, [{gvbsid: "SYNTHETIC-1", package_id: dynamicValue.package_id, package_index: 0}], "open", "equal");
+  dynamicValue.records[0].comment = "Synthetische ungespeicherte Bearbeitung";
+  ui.changed(dynamicValue.records[0]);
+  const requests = [];
+  syntheticApi = async path => {
+    requests.push(path);
+    const response = path === "/api/geo" ? refreshed.geo : path.startsWith("/api/case?") ? refreshed :
+      path === "/api/queue?view=open&ratio=equal" ? {records: []} : null;
+    if (!response) throw new Error("Unerwartete synthetische Anfrage");
+    return {ok: true, json: async () => response};
+  };
+  await ui.loadGeo();
+  check(requests.length === 3 && requests[2] === "/api/queue?view=open&ratio=equal", "Nachgeladenen Geodaten folgt eine Aktualisierung der gefilterten Liste");
+  check(elements["case-title"].textContent === "EGRID CH-SYNTHETIC-1" && !elements["case-content"].hidden,
+    "Nicht mehr passendes geöffnetes Paket bleibt nach dem Nachladen sichtbar");
+  check(elements["queue-position"].textContent === "Ausserhalb der Auswahl", "Entferntes Paket als ausserhalb der Auswahl kennzeichnen");
+  check(elements["case-counts"].textContent === "(2 GVBSID/3 EGID)" && elements.previous.disabled && elements.next.disabled,
+    "Nach dem Nachladen neue Matrixanzahlen und gefilterte Navigation verwenden");
+  check(ui.decisionPayload("Abgeschlossen").decisions[0].comment === "Synthetische ungespeicherte Bearbeitung" && !elements.dirty.hidden,
+    "Nachladen und Listenaktualisierung erhalten ungespeicherte Kommentare");
+  check(elements.queue.children.length === 1 && elements.queue.children[0].textContent.includes("Keine Fälle"),
+    "Paketauswahl enthält keine vom Verhältnisfilter ausgeschlossenen Pakete");
+
+  ui.configure(value, map, layers, [], "special", "different");
+  syntheticApi = async path => {
+    requests.push(path);
+    if (path !== "/api/queue?view=special&ratio=equal") throw new Error("Unerwartete synthetische Filteranfrage");
+    return {ok: true, json: async () => ({records: []})};
+  };
+  await ui.switchQueueRatio("equal");
+  check(ui.queueRequestPath() === "/api/queue?view=special&ratio=equal" && elements["queue-view"].value === "special",
+    "Erfolgreicher Verhältniswechsel behält den Wartelistenstatus");
+  check(elements["empty-note"].textContent.includes("Nur 1:1") && elements["case-content"].hidden,
+    "Erfolgreicher Filterwechsel zeigt die zugehörige leere Auswahl");
+  syntheticApi = null;
+
   ui.configure(value, map, layers); ui.renderCase();
   ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, impossible: 0, remaining: 1}});
   check(elements["case-category"].hidden && !elements["left-pane"].classList.contains("has-category"), "Beim Datenbankwechsel die Kategoriefarbe und Beschriftung zurücksetzen");
   check(elements["case-counts"].hidden && elements["case-counts"].textContent === "", "Alte Paketanzahlen beim Datenbankwechsel entfernen");
   check(!elements["case-counts"].classList.contains("is-unbalanced"), "Beim Datenbankwechsel die rote Kennzeichnung entfernen");
+  check(elements["queue-ratio"].value === "all" && elements["queue-view"].value === "open" && elements["queue-ratio"].disabled,
+    "Beim Datenbankwechsel beide Filter zurücksetzen und sperren");
   check(apiCalls === 0, "Der synthetische Test ruft keinen Dienst auf");
   return assertions;
 }
@@ -261,5 +319,5 @@ function runReviewUiTest(sources) {
 if (typeof require === "function") {
   const fs = require("node:fs"), path = require("node:path");
   const sources = Object.fromEntries(["src/egid_match/zuordnung/static/egid_punkte.js", "src/egid_match/zuordnung/static/zuordnung.js", "src/egid_match/zuordnung/templates/zuordnung.html"].map(name => [name, fs.readFileSync(path.join(__dirname, "..", name), "utf8")]));
-  runReviewUiTest(sources);
+  runReviewUiTest(sources).catch(error => {process.stderr.write(error.message + "\n"); process.exitCode = 1;});
 }

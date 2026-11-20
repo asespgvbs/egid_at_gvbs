@@ -6,7 +6,9 @@ const categoryColors = reviewConfig.category_colors || {};
 const $ = id => document.getElementById(id);
 let state = null, current = null, queue = [], dirty = new Set(), busy = false, generation = 0;
 let queueView = "open";
+let queueRatio = "all";
 const queueLabels = {open: "Offen", special: "Sonderfälle", completed: "Abgeschlossen"};
+const ratioLabels = {all: "Alle Verhältnisse", equal: "Nur 1:1", different: "ungleich 1:1"};
 let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new Map(), selectedEgid = null;
 let geoRequestId = 0;
 let egidRenderer = null;
@@ -182,7 +184,7 @@ function gates() {
   for (const id of ["select-db", "new-db"]) $(id).disabled = busy;
   $("import").disabled = busy || !database;
   $("activate").disabled = busy || !database || !state?.progress.total;
-  for (const id of ["search", "search-button", "export", "queue", "queue-view"]) $(id).disabled = busy || !active;
+  for (const id of ["search", "search-button", "export", "queue", "queue-view", "queue-ratio"]) $(id).disabled = busy || !active;
   const canSave = !busy && active && current?.automatic_assignments_loaded && current.egrids.length === 1 && current.records.length;
   $("save").disabled = !canSave || (!dirty.size && current.records.every(record => record.status === "Abgeschlossen"));
   $("special").disabled = !canSave || (!dirty.size && current.records.every(record => record.status === "Sonderfall"));
@@ -216,6 +218,7 @@ function applyState(value) {
   if (!value.active) {
     generation++; current = null; dirty.clear();
     queueView = "open"; $("queue-view").value = queueView;
+    queueRatio = "all"; $("queue-ratio").value = queueRatio;
     renderCategoryTheme();
     $("case-content").hidden = true; $("empty-note").hidden = false;
     $("empty-note").textContent = value.database ? "Schritt 2 bestätigen: Excel laden oder gespeicherte Daten aktivieren." : "Zuerst eine Datenbank auswählen oder neu erstellen.";
@@ -232,18 +235,25 @@ function canLeave() {
   return !dirty.size || window.confirm("Nicht gespeicherte Änderungen verwerfen und den Fall verlassen?");
 }
 
+function queueRequestPath() {
+  return "/api/queue?view=" + encodeURIComponent(queueView) + "&ratio=" + encodeURIComponent(queueRatio);
+}
+
 async function refreshQueue(stamp = null) {
-  const view = queueView;
-  const value = await api("/api/queue?view=" + encodeURIComponent(view));
-  if (view !== queueView || (stamp !== null && stamp !== generation)) return;
+  const view = queueView, ratio = queueRatio;
+  const value = await api(queueRequestPath());
+  if (view !== queueView || ratio !== queueRatio || (stamp !== null && stamp !== generation)) return;
   queue = value.records;
   $("queue-view").value = queueView;
+  $("queue-ratio").value = queueRatio;
   $("queue").replaceChildren();
   if (!queue.length) $("queue").append(node("option", "Keine Fälle in der Warteschlange"));
   for (const record of queue) {
     const label = record.egrid ? `EGRID ${record.egrid}` : `Ohne EGRID · ${record.gvbsid}`;
     const controls = record.control_numbers?.length ? ` · KN ${record.control_numbers.join(", ")}` : "";
-    const option = node("option", `${label}${controls} · ${record.record_count || 1} Gebäude · ${record.status}`);
+    const counts = typeof record.egid_count === "number"
+      ? `${record.gvbsid_count} GVBSID/${record.egid_count} EGID` : `${record.record_count || 1} Gebäude`;
+    const option = node("option", `${label}${controls} · ${counts} · ${record.status}`);
     option.value = record.package_id || record.gvbsid; $("queue").append(option);
   }
   if (current && queue.some(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected))) $("queue").value = current.package_id || current.selected;
@@ -341,7 +351,7 @@ function renderCase() {
   $("case-title").textContent = current.egrids.length ? `EGRID ${current.egrids.join(", ")}` : `${current.selected} (ohne EGRID)`;
   const position = queue.findIndex(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected));
   const navigation = packageNavigation();
-  $("queue-position").textContent = navigation.position < 0 ? "Über Suche geöffnet"
+  $("queue-position").textContent = navigation.position < 0 ? "Ausserhalb der Auswahl"
     : `Paket ${navigation.position + 1} / ${navigation.packages.length}`;
   $("queue-position").title = `${current.records.length} GVBSID im angezeigten Paket`;
   if (position >= 0) $("queue").value = current.package_id || current.selected;
@@ -451,17 +461,31 @@ function showEmptyQueue() {
   current = null; dirty.clear(); generation++; renderCategoryTheme();
   $("case-content").hidden = true; $("empty-note").hidden = false;
   $("case-title").textContent = `${queueLabels[queueView]} · Keine Fälle`;
-  $("empty-note").textContent = "Diese Warteliste ist leer. Wähle eine andere Warteliste oder öffne eine GVBSID über die Suche.";
+  $("empty-note").textContent = `Keine Pakete für ${queueLabels[queueView]} · ${ratioLabels[queueRatio]}. Ändere die Filter oder öffne eine GVBSID über die Suche.`;
   $("queue-position").textContent = "0 Pakete";
   clearMap();
 }
 
-async function switchQueueView(view) {
-  if (!canLeave()) {$("queue-view").value = queueView; return;}
-  const previousView = queueView;
-  queueView = view;
+async function switchQueueFilters(view, ratio) {
+  if (!canLeave()) {
+    $("queue-view").value = queueView; $("queue-ratio").value = queueRatio; return;
+  }
+  const previousView = queueView, previousRatio = queueRatio;
+  queueView = view; queueRatio = ratio;
   try {await activate(state);}
-  catch (error) {queueView = previousView; $("queue-view").value = previousView; throw error;}
+  catch (error) {
+    queueView = previousView; queueRatio = previousRatio;
+    $("queue-view").value = previousView; $("queue-ratio").value = previousRatio;
+    throw error;
+  }
+}
+
+function switchQueueView(view) {
+  return switchQueueFilters(view, queueRatio);
+}
+
+function switchQueueRatio(ratio) {
+  return switchQueueFilters(queueView, ratio);
 }
 
 function decisionPayload(status) {
@@ -640,6 +664,7 @@ $("queue").addEventListener("change", () => action(async () => {
   if (entry) await openCase(entry.gvbsid, true, entry.package_id);
 }));
 $("queue-view").addEventListener("change", () => action(() => switchQueueView($("queue-view").value)));
+$("queue-ratio").addEventListener("change", () => action(() => switchQueueRatio($("queue-ratio").value)));
 $("previous").addEventListener("click", () => action(async () => {const nav = packageNavigation(); if (nav.previous) await openCase(nav.previous, true, nav.previousPackage);}));
 $("next").addEventListener("click", () => action(async () => {const nav = packageNavigation(); if (nav.next) await openCase(nav.next, true, nav.nextPackage);}));
 $("save").addEventListener("click", () => action(() => saveDecision("Abgeschlossen")));

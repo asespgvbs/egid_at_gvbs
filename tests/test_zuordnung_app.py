@@ -177,6 +177,131 @@ class AppTests(SyntheticMemory):
         self.assertEqual(special[0]["package_id"], "egrid:CH-SYNTHETIC-1")
         self.assertEqual(self.client.get("/api/queue?view=unknown").status_code, 400)
 
+    def test_ratio_filter_counts_unique_package_ids_and_matches_matrix(self):
+        values = [list(row) for row in VALUES]
+        values[0][5:7] = ["101,101", "102,102,104"]
+        self.database.import_rows(HEADERS, values)
+        self.select(activate=True)
+        all_rows = self.client.get("/api/queue").json["records"]
+        self.assertEqual([(row["gvbsid_count"], row["egid_count"]) for row in all_rows], [(2, 3), (1, 1)])
+        for ratio, expected in (("all", ["CH-SYNTHETIC-1", "CH-SYNTHETIC-2"]),
+                                ("equal", ["CH-SYNTHETIC-2"]), ("different", ["CH-SYNTHETIC-1"])):
+            response = self.client.get("/api/queue", query_string={"ratio": ratio})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual([row["egrid"] for row in response.json["records"]], expected)
+        for row in all_rows:
+            case = self.client.get("/api/case", query_string={"gvbsid": row["gvbsid"], "package_id": row["package_id"]}).json
+            self.assertEqual(row["gvbsid_count"], len({record["gvbsid"] for record in case["records"]}))
+            self.assertEqual(row["egid_count"], len(case["egids"]))
+        self.assertEqual(self.client.get("/api/queue?ratio=unknown").status_code, 400)
+        self.fetch.assert_not_called()
+        self.gwr_addresses.assert_not_called()
+        self.gwr_volumes.assert_not_called()
+
+    def test_equal_ratio_includes_four_to_four_and_automatically_locked_egids(self):
+        self.database.import_rows(HEADERS, [
+            ["SYNTHETIC-4", *VALUES[0][1:5], "104", "", *VALUES[0][7:]],
+            ["SYNTHETIC-5", *VALUES[0][1:5], "105", "", *VALUES[0][7:]],
+        ], automatic_egids={"101"})
+        self.select(activate=True)
+        rows = self.client.get("/api/queue?ratio=equal").json["records"]
+        self.assertEqual([(row["gvbsid_count"], row["egid_count"]) for row in rows], [(4, 4), (1, 1)])
+        self.assertEqual(self.client.get("/api/queue?ratio=different").json["records"], [])
+        case = self.app.session.case("SYNTHETIC-1")
+        self.assertIn("101", case["egids"])
+        self.assertIn("101", case["blocked_egids"])
+
+    def test_ratio_includes_saved_assignments_outside_imported_candidates(self):
+        self.database.save([{"gvbsid": "SYNTHETIC-1", "version": 1, "status": "Offen", "assigned": ["999"]}], {"999"})
+        self.select(activate=True)
+        rows = self.client.get("/api/queue?ratio=different").json["records"]
+        self.assertEqual([(row["egrid"], row["gvbsid_count"], row["egid_count"]) for row in rows],
+                         [("CH-SYNTHETIC-1", 2, 3)])
+        self.assertIn("999", self.app.session.case("SYNTHETIC-1")["egids"])
+
+    def test_ratio_without_egid_is_unequal(self):
+        values = list(VALUES[2])
+        values[5:7] = ["", ""]
+        self.database.import_rows(HEADERS, [values])
+        self.select(activate=True)
+        rows = self.client.get("/api/queue?ratio=different").json["records"]
+        self.assertEqual([(row["egrid"], row["gvbsid_count"], row["egid_count"]) for row in rows],
+                         [("CH-SYNTHETIC-2", 1, 0)])
+
+    def test_ratio_combines_with_status_and_follows_package_status_changes(self):
+        values = list(VALUES[0])
+        values[6] = "102,104"
+        self.database.import_rows(HEADERS, [values])
+        self.select(activate=True)
+        for view, status in (("special", "Sonderfall"), ("completed", "Abgeschlossen")):
+            version = self.database.records()[0]["version"]
+            self.assertEqual(self.post("/api/save", self.decision(status, [], version=version)).status_code, 200)
+            rows = self.client.get("/api/queue", query_string={"view": view, "ratio": "different"}).json["records"]
+            self.assertEqual([row["egrid"] for row in rows], ["CH-SYNTHETIC-1"])
+            self.assertEqual(self.client.get("/api/queue", query_string={"view": view, "ratio": "equal"}).json["records"], [])
+            self.assertEqual(self.client.get("/api/queue?view=open&ratio=different").json["records"], [])
+            self.assertEqual([row["egrid"] for row in self.client.get("/api/queue?view=open&ratio=equal").json["records"]],
+                             ["CH-SYNTHETIC-2"])
+
+    def test_ratio_tracks_verified_geodata_on_any_member_and_expires_extra_candidates(self):
+        self.database.import_rows(HEADERS, VALUES, automatic_egids={"999"})
+        self.select(activate=True)
+        self.assertEqual(len(self.client.get("/api/queue?ratio=equal").json["records"]), 2)
+        self.app.session.config = geo_config()
+        self.fetch.side_effect = [
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1"})]},
+            {"type": "FeatureCollection", "features": [feature({"egrid": "CH-SYNTHETIC-1", "egid": 999, "gstat": 1004})]},
+        ]
+        self.assertEqual(self.post("/api/geo", {"selected": "SYNTHETIC-2"}).status_code, 200)
+        rows = self.client.get("/api/queue?ratio=different").json["records"]
+        self.assertEqual([(row["gvbsid_count"], row["egid_count"]) for row in rows], [(2, 3)])
+        for selected in ("SYNTHETIC-1", "SYNTHETIC-2"):
+            case = self.app.session.case(selected)
+            self.assertEqual(case["egids"], ["101", "102", "999"])
+            self.assertIn("999", case["blocked_egids"])
+        self.assertEqual(self.fetch.call_count, 2)
+        for source in self.app.session.geo_cache["SYNTHETIC-2"]["sources"].values():
+            source["fetched_at"] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+        self.assertEqual(self.client.get("/api/queue?ratio=different").json["records"], [])
+        self.assertEqual(len(self.client.get("/api/queue?ratio=equal").json["records"]), 2)
+        self.assertNotIn("999", self.app.session.case("SYNTHETIC-1")["egids"])
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_cached_ratio_candidates_are_scoped_to_their_egrid_package(self):
+        values = list(VALUES[1])
+        values[7] = "CH-SYNTHETIC-1, CH-SYNTHETIC-2"
+        self.database.import_rows(HEADERS, [values])
+        self.select(activate=True)
+        self.app.session.geo_cache["SYNTHETIC-2"] = {
+            "package_id": "egrid:CH-SYNTHETIC-1", "parcels": [], "sources": {},
+            "buildings": [
+                {"egid": "999", "egrid": "CH-SYNTHETIC-1", "assignable": True},
+                {"egid": "888", "egrid": "CH-SYNTHETIC-2", "assignable": True},
+                {"egid": "777", "egrid": "CH-SYNTHETIC-1", "assignable": False},
+            ],
+        }
+        self.assertEqual([row["egrid"] for row in self.client.get("/api/queue?ratio=equal").json["records"]], ["CH-SYNTHETIC-2"])
+        self.assertEqual([row["egrid"] for row in self.client.get("/api/queue?ratio=different").json["records"]], ["CH-SYNTHETIC-1"])
+        self.assertEqual(self.app.session.case("SYNTHETIC-1")["egids"], ["101", "102", "999"])
+        self.assertEqual(self.app.session.case("SYNTHETIC-3")["egids"], ["102", "103"])
+        self.fetch.assert_not_called()
+
+    def test_resolved_geodata_is_counted_only_for_its_own_egrid(self):
+        values = list(VALUES[1])
+        values[7] = ""
+        self.database.import_rows(HEADERS, [values])
+        self.select(activate=True)
+        self.app.session.geo_cache["SYNTHETIC-2"] = {
+            "package_id": "gvbsid:SYNTHETIC-2", "sources": {},
+            "parcels": [{"egrid": "CH-SYNTHETIC-1"}, {"egrid": "CH-SYNTHETIC-2"}],
+            "buildings": [{"egid": "999", "egrid": "CH-SYNTHETIC-1", "assignable": True}],
+        }
+        rows = self.client.get("/api/queue").json["records"]
+        self.assertEqual([(row["gvbsid_count"], row["egid_count"]) for row in rows], [(2, 3), (2, 2)])
+        self.assertEqual([row["egrid"] for row in self.client.get("/api/queue?ratio=equal").json["records"]], ["CH-SYNTHETIC-2"])
+        self.assertNotIn("999", self.app.session.case("SYNTHETIC-3")["egids"])
+        self.fetch.assert_not_called()
+
     def test_stale_special_batch_preserves_all_statuses(self):
         self.select(activate=True)
         before = self.database.records()

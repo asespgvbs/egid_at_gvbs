@@ -86,7 +86,7 @@ eine separate neue Datenbank angelegt werden.
 
 Links füllt die Zuordnungsmatrix den verfügbaren Bereich bis zu den
 Aktionsknöpfen aus. Rechts oben stehen EGRID, GVBSID-/EGID-Anzahlen, gemeinsame
-Kategorie und beide Auswahlfelder für Warteliste und EGRID-Paket. Direkt darunter
+Kategorie und die Auswahlfelder für Verhältnis, Warteliste und EGRID-Paket. Direkt darunter
 liegt die Karte. Auf schmalen Bildschirmen stehen Paketkopf, Matrix und Karte
 untereinander.
 
@@ -100,7 +100,7 @@ Suffix-Paare orange. Bereits gespeicherte Fälle verwenden ihre importierte
 `Matching-Kategorie`; fehlt diese Angabe, bleibt die Darstellung neutral.
 
 Die Paketauswahl rechts oben enthält **einen Eintrag je EGRID-Paket**, mit EGRID,
-Kontrollnummern und Anzahl der importierten Gebäude. Alle importierten Prüffälle
+Kontrollnummern und GVBSID-/EGID-Anzahlen. Alle importierten Prüffälle
 derselben verlässlich bekannten EGRID werden gemeinsam angezeigt, auch bei
 unterschiedlichen Kontrollnummern und Gebäudenummern. Eine GVBSID mit mehreren
 EGRIDs kann zu mehreren Paketen gehören; jede EGRID bleibt ein eigener Eintrag.
@@ -113,6 +113,25 @@ Fehlt ein Wert, steht dort `Nicht angegeben`.
 
 Über **Warteliste** wird zwischen **Offen**, **Sonderfälle** und **Abgeschlossen**
 gewechselt. Der ausgewählte Bereich bestimmt die Fallauswahl und Paketnavigation.
+Darüber steht der Filter **GVBSID:EGID - Verhältnis**:
+
+- **Alle Verhältnisse** ist die Standardauswahl und zeigt alle Pakete der gewählten Warteliste.
+- **Nur 1:1** zeigt gleiche Anzahlen unterschiedlicher GVBSIDs und EGIDs, also
+  beispielsweise 1:1, 2:2 oder 4:4.
+- **ungleich 1:1** zeigt unterschiedliche Anzahlen, auch Fälle ohne EGID wie 1:0.
+
+Gezählt werden dieselben eindeutigen IDs wie in der Matrix: importierte Kandidaten,
+gespeicherte Zuteilungen und zusätzliche verlässlich geladene Geodaten des Pakets.
+Bereits automatisch zugeteilte, ausgegraute EGIDs zählen mit. Veraltete Geodaten
+und Geodaten anderer EGRID-Pakete werden nicht als zusätzliche Kandidaten gezählt.
+Das Filtern selbst löst keine weiteren Geodatenabfragen aus.
+
+Nachgeladene Geodaten können das Verhältnis und die gefilterte Warteliste ändern.
+Das aktuell geöffnete Paket bleibt dabei sichtbar, gegebenenfalls mit dem Hinweis
+**Ausserhalb der Auswahl**. Weiter und Zurück berücksichtigen ausschliesslich die
+gefilterte Warteliste. Auch bei einem Verhältniswechsel schützt die vorhandene
+Rückfrage ungespeicherte Änderungen; bei Abbruch bleiben beide Filter erhalten.
+
 Vor einem Listenwechsel fragt die App nach, falls ungespeicherte Änderungen
 vorhanden sind. Ein Paket erscheint nur einmal: Sobald ein Mitglied Sonderfall
 ist, steht es unter Sonderfälle; erst wenn alle Mitglieder abgeschlossen sind,

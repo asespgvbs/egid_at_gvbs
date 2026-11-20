@@ -133,9 +133,26 @@ class ReviewSession:
             return "Sonderfall"
         return "Abgeschlossen" if statuses <= FINISHED else "Offen"
 
-    def queue(self, view="open"):
+    def package_egids(self, package):
+        """Dieselben eindeutigen Matrixkandidaten für Fallansicht und Filter."""
+        available = set()
+        for record in package["records"]:
+            available.update(record["candidates"] + record["suffix_candidates"] + record["assigned"])
+            cached = cached_context(self.geo_cache[record["gvbsid"]]) if record["gvbsid"] in self.geo_cache else {}
+            if cached.get("package_id") not in (None, package["id"], "gvbsid:" + record["gvbsid"]):
+                continue
+            for building in cached.get("buildings", []):
+                if building.get("assignable") and (package["egrid"] is None
+                        or building.get("egrid") == package["egrid"]
+                        or package["egrid"] in building.get("egrids", [])):
+                    available.add(building["egid"])
+        return available
+
+    def queue(self, view="open", ratio="all"):
         if view not in QUEUE_STATUSES:
             raise ReviewError("Unbekannte Warteliste. Bitte Offen, Sonderfälle oder Abgeschlossen wählen.")
+        if ratio not in ("all", "equal", "different"):
+            raise ReviewError("Unbekannter Verhältnisfilter. Bitte Alle Verhältnisse, Nur 1:1 oder ungleich 1:1 wählen.")
         records = self.require_store(active=True).records()
         result = []
         for index, package in enumerate(self.record_packages(records)):
@@ -143,12 +160,17 @@ class ReviewSession:
             status = self.package_status(members)
             if status not in QUEUE_STATUSES[view]:
                 continue
+            gvbsid_count = len({record["gvbsid"] for record in members})
+            egid_count = len(self.package_egids(package))
+            balanced = gvbsid_count == egid_count
+            if (ratio == "equal" and not balanced) or (ratio == "different" and balanced):
+                continue
             controls = sorted({txt(record["raw"].get("Kontrollnummer")) or record["gvbsid"].rsplit("-", 1)[0]
                                for record in members})
             result.append({"gvbsid": members[0]["gvbsid"], "status": status,
                            "package_id": package["id"], "package_index": index,
                            "egrid": package["egrid"], "control_numbers": controls,
-                           "record_count": len(members)})
+                           "record_count": len(members), "gvbsid_count": gvbsid_count, "egid_count": egid_count})
         return result
 
     def case(self, gvbsid, package_id=None):
@@ -171,10 +193,7 @@ class ReviewSession:
         cached = cached_context(self.geo_cache[gvbsid]) if gvbsid in self.geo_cache else {}
         if cached.get("package_id") not in (None, package["id"], "gvbsid:" + gvbsid):
             cached = {}
-        available = set()
-        for record in grouped:
-            available.update(record["candidates"] + record["suffix_candidates"] + record["assigned"])
-        available.update(building["egid"] for building in cached.get("buildings", []) if building.get("assignable"))
+        available = self.package_egids(package)
         visible = available | {building["egid"] for building in cached.get("buildings", [])}
         if cached:
             cached = {**cached, "buildings": [{**building,
@@ -255,8 +274,10 @@ class ReviewApplication:
                     if path == "/api/state":
                         return json_response(self.session.state())
                     if path == "/api/queue":
-                        view = parse_qs(parts.query).get("view", ["open"])[0]
-                        return json_response({"records": self.session.queue(view)})
+                        query = parse_qs(parts.query)
+                        view = query.get("view", ["open"])[0]
+                        ratio = query.get("ratio", ["all"])[0]
+                        return json_response({"records": self.session.queue(view, ratio)})
                     if path == "/api/case":
                         query = parse_qs(parts.query)
                         gvbsid = query.get("gvbsid", [""])[0]
