@@ -60,7 +60,7 @@ async function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"].replace(/\r\n/g, "\n");
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){packageNotice.reset();current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){packageNotice.reset();current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:200},unassigned_count:123};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
@@ -73,7 +73,24 @@ async function runReviewUiTest(sources) {
   const layers = {parcels: group(), buildings: group(), markers: group(), labels: group(), mask: group()};
   ui.configure(value, map, layers);
   ui.renderCase();
+  ui.applyState({database: "synthetic", active: true, progress: {total: 1, completed: 0, remaining: 1}});
+  elements["top-panel"].events.pointerenter();
+  check(document.body.classList.contains("top-panel-open") && !elements["top-panel"].inert,
+    "Obere Bedienleiste beim Hineinfahren einblenden");
+  elements["top-panel"].events.pointerleave();
+  check(!document.body.classList.contains("top-panel-open") && elements["top-panel"].inert &&
+    elements["top-panel"].attributes["aria-hidden"] === "true",
+    "Obere Bedienleiste beim Verlassen sofort ohne Ablauf eines Timers schliessen");
+  elements["top-panel-trigger"].events.pointerenter();
+  check(document.body.classList.contains("top-panel-open"), "Geschlossene Bedienleiste am oberen Rand wieder einblenden");
+  ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, remaining: 1}});
+  elements["top-panel"].events.pointerleave();
+  check(!elements["top-panel"].inert && elements["top-panel"].attributes["aria-hidden"] === "false",
+    "Während der Einrichtung die benötigte Bedienleiste beim Verlassen sichtbar lassen");
+  ui.configure(value, map, layers); ui.renderCase();
   check(ui.queueRequestPath() === "/api/queue?view=open&ratio=all", "Standardauswahl kombiniert offene Warteliste mit allen Verhältnissen");
+  check(elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID" && elements["queue-scope"].hidden,
+    "Gesamtzahl ohne gespeicherte EGID statt Paketnummer anzeigen, auch wenn nur ein Paket geöffnet ist");
   check(!elements["queue-ratio"].disabled, "Verhältnisfilter bei aktiver Bearbeitung freischalten");
   const markup = sources["src/egid_match/zuordnung/templates/zuordnung.html"];
   check(markup.indexOf('id="queue-ratio-bar"') < markup.indexOf('id="queue-filter-bar"'), "Verhältnisfilter oberhalb der Warteliste anzeigen");
@@ -222,7 +239,7 @@ async function runReviewUiTest(sources) {
   ui.configure({...value, records: [{...value.records[0], status: "Abgeschlossen"}]}, map, layers); ui.renderCase();
   check(elements.save.disabled && !elements.special.disabled, "Abgeschlossenen Fall als Sonderfall umtaggen können");
   ui.configure(value, map, layers, [], "special", "different"); ui.showEmptyQueue();
-  check(elements["case-title"].textContent.includes("Sonderfälle") && elements["queue-position"].textContent === "0 Pakete", "Leere Sonderfallwarteliste eindeutig benennen");
+  check(elements["case-title"].textContent.includes("Sonderfälle") && elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Auch bei leerer Sonderfallwarteliste die globale Anzahl unzugeteilter GVBSIDs anzeigen");
   check(elements["empty-note"].textContent.includes("ungleich 1:1"), "Bei leerer Auswahl auch den aktiven Verhältnisfilter erklären");
   check(ui.queueRequestPath() === "/api/queue?view=special&ratio=different", "Verhältnisfilter mit der gewählten Warteliste kombinieren");
   check(sources["src/egid_match/zuordnung/templates/zuordnung.html"].includes('id="special" class="danger"'), "Sonderfall-Knopf erhält die rote Darstellung");
@@ -237,7 +254,7 @@ async function runReviewUiTest(sources) {
     const navigation = ui.packageNavigation();
     check(navigation.next === "SYNTHETIC-3" && navigation.previous === null, "Weiter überspringt alle Mitglieder des aktuellen Pakets, auch bei verstreuten Warteschlangeneinträgen");
     check(elements.previous.disabled && !elements.next.disabled, "Am ersten Paket nur Weiter aktivieren");
-    check(elements["queue-position"].textContent === "Paket 1 / 2", "Die Paketposition statt einer einzelnen GVBSID-Position anzeigen");
+    check(elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Die globale Anzahl unzugeteilter GVBSIDs statt der Paketposition anzeigen");
   }
   ui.configure({...value, selected: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2}, map, layers, packageQueue);
   ui.renderCase();
@@ -245,7 +262,7 @@ async function runReviewUiTest(sources) {
   check(!elements.previous.disabled && elements.next.disabled, "Am letzten Paket nur Zurück aktivieren");
   ui.configure({...value, selected: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2}, map, layers,
     [packageQueue[1]], "open", "equal"); ui.renderCase();
-  check(elements.previous.disabled && elements.next.disabled && elements["queue-position"].textContent === "Paket 1 / 1", "Navigation berücksichtigt ausschliesslich die gefilterten Pakete");
+  check(elements.previous.disabled && elements.next.disabled && elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Navigation berücksichtigt ausschliesslich die gefilterten Pakete; der Gesamtzähler bleibt unverändert");
   ui.configure({...value, package_id: "egrid:SYNTHETIC-A", package_index: 0}, map, layers, [
     {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-A", package_index: 0},
     {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-B", package_index: 1},
@@ -372,8 +389,9 @@ async function runReviewUiTest(sources) {
   const beforeNotices = JSON.stringify(allWarnings.records);
   ui.configure(allWarnings, map, layers); ui.renderCase();
   check(notice.open && warningIds() === "volume,controls,addresses", "Alle drei Hinweise gemeinsam in einem einzigen Infofenster anzeigen");
-  check(noticeList.children[1].textContent === "ACHTUNG: Mehrere Kontrollnummern auf der Parzelle.",
-    "Mehrere Kontrollnummern mit dem gewünschten ACHTUNG-Text melden");
+  check(noticeList.children[1].textContent === "Info: Mehrere Kontrollnummern auf der Parzelle." &&
+    noticeList.children[1].className === "package-info",
+    "Mehrere Kontrollnummern als neutralen Infohinweis ohne rote Warnklasse melden");
   check(volumeWarnings().every(Boolean) && JSON.stringify(allWarnings.records) === beforeNotices && elements.dirty.hidden,
     "Gesamtes Paket rot markieren, ohne Zuteilungen, Kommentare oder Status zu verändern");
   const combinedCount = notice.showCount;
@@ -393,6 +411,8 @@ async function runReviewUiTest(sources) {
     ui.configure({...noticeCase, records: item.records}, map, layers); ui.renderCase();
     check(notice.open === item.expected && (!item.expected || warningIds() === "controls"),
       "Kontrollnummern aus Originalspalte oder GVBSID korrekt unterscheiden; führende Nullen und Gebäudenummern nicht mehrfach zählen");
+    check(!item.expected || noticeList.children[0].className === "package-info",
+      "Auch ein einzelner Kontrollnummernhinweis bleibt neutral");
   }
   const addressCases = [
     [["Singstrasse", "2", "0000"], ["Singstrasse", "4", "0000"], true],
@@ -634,7 +654,7 @@ async function runReviewUiTest(sources) {
   check(requests.length === 3 && requests[2] === "/api/queue?view=open&ratio=equal", "Nachgeladenen Geodaten folgt eine Aktualisierung der gefilterten Liste");
   check(elements["case-title"].textContent === "EGRID CH-SYNTHETIC-1" && !elements["case-content"].hidden,
     "Nicht mehr passendes geöffnetes Paket bleibt nach dem Nachladen sichtbar");
-  check(elements["queue-position"].textContent === "Ausserhalb der Auswahl", "Entferntes Paket als ausserhalb der Auswahl kennzeichnen");
+  check(!elements["queue-scope"].hidden && elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Entferntes Paket separat als ausserhalb der Auswahl kennzeichnen und den Gesamtzähler erhalten");
   check(elements["case-counts"].textContent === "(2 GVBSID/3 EGID)" && elements.previous.disabled && elements.next.disabled,
     "Nach dem Nachladen neue Matrixanzahlen und gefilterte Navigation verwenden");
   check(ui.decisionPayload("Abgeschlossen").decisions[0].comment === "Synthetische ungespeicherte Bearbeitung" && !elements.dirty.hidden,
@@ -662,6 +682,35 @@ async function runReviewUiTest(sources) {
   check(elements["case-category"].hidden && !elements["left-pane"].classList.contains("has-category"), "Beim Datenbankwechsel die Kategoriefarbe und Beschriftung zurücksetzen");
   check(elements["case-counts"].hidden && elements["case-counts"].textContent === "", "Alte Paketanzahlen beim Datenbankwechsel entfernen");
   check(!elements["case-counts"].classList.contains("is-unbalanced"), "Beim Datenbankwechsel die rote Kennzeichnung entfernen");
+  const countState = count => ({database: "synthetic", active: true, unassigned_count: count,
+    progress: {total: 3, completed: 0, special: 0, remaining: 3},
+    package_progress: {total: 2, completed: 0, special: 0, remaining: 2}});
+  const unsavedCountRecord = {...value.records[0], assigned: []};
+  ui.configure({...value, records: [unsavedCountRecord]}, map, layers); ui.applyState(countState(3)); ui.renderCase();
+  const unsavedCountInput = elements.matrix.children[0].children[1].children[0].children[1].children[0];
+  unsavedCountInput.checked = true; unsavedCountInput.events.change();
+  check(elements["queue-position"].textContent === "Noch 3 von 3 GVBSIDs ohne EGID" && !elements.dirty.hidden,
+    "Ungespeicherte Checkboxänderungen verändern den Zähler nicht");
+  ui.applyState(countState(2));
+  check(elements["queue-position"].textContent === "Noch 2 von 3 GVBSIDs ohne EGID", "Ein aktualisierter gespeicherter Stand aktualisiert den Zähler sofort");
+  ui.applyState(countState(1));
+  check(elements["queue-position"].textContent === "Noch 1 von 3 GVBSIDs ohne EGID", "Bei einer verbleibenden GVBSID die ursprüngliche Gesamtzahl erhalten");
+  ui.applyState(countState(0));
+  check(elements["queue-position"].textContent === "Noch 0 von 3 GVBSIDs ohne EGID", "Null verbleibende Zuteilungen eindeutig anzeigen");
+  ui.showEmptyQueue();
+  check(elements["queue-position"].textContent === "Noch 0 von 3 GVBSIDs ohne EGID" && elements["queue-scope"].hidden,
+    "Auch ohne geöffnetes Paket die Gesamtzahl anzeigen und den Hinweis ausserhalb der Auswahl ausblenden");
+  ui.applyState(countState(undefined));
+  check(elements["queue-position"].textContent === "Anzahl ohne EGID nicht verfügbar", "Fehlende Zählerdaten nicht als null verbleibende GVBSIDs darstellen");
+  ui.applyState({...countState(1), progress: {total: 1}});
+  check(elements["queue-position"].textContent === "Noch 1 von 1 GVBSID ohne EGID", "Bei insgesamt einer GVBSID die Einzahl verwenden");
+  ui.applyState({...countState(0), progress: {total: 0}});
+  check(elements["queue-position"].textContent === "Noch 0 von 0 GVBSIDs ohne EGID", "Eine leere Gesamtmenge eindeutig anzeigen");
+  ui.applyState({...countState(1), progress: {}});
+  check(elements["queue-position"].textContent === "Anzahl ohne EGID nicht verfügbar", "Fehlende Gesamtzahl nicht durch die Paketanzahl ersetzen");
+  ui.applyState({...countState(0), active: false});
+  check(elements["queue-position"].textContent === "Gesperrt" && elements["queue-scope"].hidden,
+    "Vor Aktivierung der Datenbank keine veraltete Anzahl oder Paketzugehörigkeit anzeigen");
   check(elements["queue-ratio"].value === "all" && elements["queue-view"].value === "open" && elements["queue-ratio"].disabled,
     "Beim Datenbankwechsel beide Filter zurücksetzen und sperren");
   check(apiCalls === 0, "Der synthetische Test ruft keinen Dienst auf");

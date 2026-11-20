@@ -114,7 +114,10 @@ function createTopPanel() {
   }
 
   panel.addEventListener("pointerenter", () => {pointerInside = true; reveal();});
-  panel.addEventListener("pointerleave", () => {pointerInside = false; scheduleClose();});
+  panel.addEventListener("pointerleave", () => {
+    pointerInside = false; cancelClose();
+    if (ready) setOpen(false);
+  });
   panel.addEventListener("focusin", reveal);
   panel.addEventListener("focusout", event => {
     if (!panel.contains(event.relatedTarget)) scheduleClose();
@@ -216,6 +219,21 @@ async function action(callback) {
   finally { busy = false; gates(); topPanel.scheduleClose(); }
 }
 
+function renderQueueCount() {
+  const badge = $("queue-position");
+  if (!state?.active) {
+    badge.textContent = "Gesperrt"; badge.title = "";
+    $("queue-scope").hidden = true;
+    return;
+  }
+  const count = state.unassigned_count, total = state.progress?.total;
+  badge.textContent = Number.isInteger(count) && count >= 0 && Number.isInteger(total) && total >= count
+    ? `Noch ${count} von ${total} ${total === 1 ? "GVBSID" : "GVBSIDs"} ohne EGID`
+    : "Anzahl ohne EGID nicht verfügbar";
+  badge.title = "Verbleibende GVBSIDs ohne gespeicherte EGID-Zuteilung von allen importierten Prüffällen nach automatischer Zuordnung, unabhängig von Wartelisten- und Verhältnisfilter.";
+  $("queue-scope").hidden = !current || queue.some(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected));
+}
+
 function applyState(value) {
   state = value;
   topPanel.setReady(Boolean(value.database && value.active));
@@ -236,10 +254,10 @@ function applyState(value) {
     $("case-content").hidden = true; $("empty-note").hidden = false;
     $("empty-note").textContent = value.database ? "Schritt 2 bestätigen: Excel laden oder gespeicherte Daten aktivieren." : "Zuerst eine Datenbank auswählen oder neu erstellen.";
     $("case-title").textContent = "Prüffälle laden";
-    $("queue-position").textContent = "Gesperrt";
     $("queue").replaceChildren(node("option", "Noch keine Daten aktiviert"));
     clearMap();
   }
+  renderQueueCount();
   if (value.warning) message(value.warning, true);
   gates();
 }
@@ -372,7 +390,7 @@ function packageWarnings(records) {
   const warnings = [];
   if (volumeOrderMismatch(records)) warnings.push({id: "volume", text: "INFO: Die GVBSID-Nummerierung stimmt nicht mit der Sortierung der Kubatur überein."});
   if (new Set(records.map(controlNumber).filter(Boolean)).size > 1) {
-    warnings.push({id: "controls", text: "ACHTUNG: Mehrere Kontrollnummern auf der Parzelle."});
+    warnings.push({id: "controls", text: "Info: Mehrere Kontrollnummern auf der Parzelle."});
   }
   if (differentEgidAddresses()) warnings.push({id: "addresses", text: "INFO: Die EGIDs auf der Parzelle haben unterschiedliche Hauptadressen."});
   if (differentGvbsAddresses(records)) warnings.push({id: "gvbs_addresses", text: "INFO: Die GVBSIDs auf der Parzelle haben unterschiedliche Hauptadressen."});
@@ -404,7 +422,7 @@ function createPackageNotice() {
       pending = warnings;
       $("package-notice-title").textContent = current.egrids.length ? `Hinweise zur Parzelle ${current.egrids.join(", ")}` : "Hinweise zum Paket";
       list.replaceChildren(...warnings.map(warning => {
-        const item = node("li", warning.text, warning.id === "controls" ? "package-warning" : "package-info");
+        const item = node("li", warning.text, "package-info");
         item.dataset.warning = warning.id;
         return item;
       }));
@@ -541,10 +559,7 @@ function renderCase() {
   $("case-content").hidden = false; $("empty-note").hidden = true;
   $("case-title").textContent = current.egrids.length ? `EGRID ${current.egrids.join(", ")}` : `${current.selected} (ohne EGRID)`;
   const position = queue.findIndex(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected));
-  const navigation = packageNavigation();
-  $("queue-position").textContent = navigation.position < 0 ? "Ausserhalb der Auswahl"
-    : `Paket ${navigation.position + 1} / ${navigation.packages.length}`;
-  $("queue-position").title = `${current.records.length} GVBSID im angezeigten Paket`;
+  renderQueueCount();
   if (position >= 0) $("queue").value = current.package_id || current.selected;
   const lockNote = $("assignment-lock-note");
   lockNote.hidden = Boolean(current.automatic_assignments_loaded && current.egrids.length && !current.blocked_egids?.length);
@@ -672,7 +687,7 @@ function showEmptyQueue() {
   $("case-content").hidden = true; $("empty-note").hidden = false;
   $("case-title").textContent = `${queueLabels[queueView]} · Keine Fälle`;
   $("empty-note").textContent = `Keine Pakete für ${queueLabels[queueView]} · ${ratioLabels[queueRatio]}. Ändere die Filter oder öffne eine GVBSID über die Suche.`;
-  $("queue-position").textContent = "0 Pakete";
+  renderQueueCount();
   clearMap();
 }
 
