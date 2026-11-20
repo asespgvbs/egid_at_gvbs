@@ -18,8 +18,8 @@ from urllib.parse import parse_qs
 
 from .geo import DEFAULTS, GeoBS, cached_context
 from .gwr import read_gwr_addresses, read_gwr_volumes
-from .store import FINISHED, ReviewStore, STATUSES
-from ..common import ConflictError, ReviewError
+from .store import FINISHED, QUEUE_STATUSES, ReviewStore, STATUSES
+from ..common import ConflictError, ReviewError, txt
 from ..matching import CATEGORY_COLORS, DEFAULT_GWR_DB
 
 
@@ -94,13 +94,18 @@ class ReviewSession:
         return self.store
 
     def state(self):
-        progress = self.store.progress() if self.store else {"total": 0, "completed": 0, "impossible": 0, "remaining": 0}
+        progress = self.store.progress() if self.store else {"total": 0, "completed": 0, "impossible": 0, "special": 0, "remaining": 0}
         automatic_known = self.store is not None and self.store.automatic_egids() is not None
         warning = self.warning
         if self.store is not None and not automatic_known:
             warning = (warning + " Bitte die vollständige Matching-Datei laden, um automatisch zugeteilte EGID zu sperren.").strip()
+        package_statuses = [self.package_status(package["records"])
+                            for package in self.record_packages(self.store.records())] if self.store else []
+        package_progress = {"total": len(package_statuses), "completed": package_statuses.count("Abgeschlossen"),
+                            "special": package_statuses.count("Sonderfall"), "remaining": package_statuses.count("Offen")}
         return {"database": str(self.store.path) if self.store else None, "active": self.active,
                 "progress": progress, "warning": warning, "statuses": list(STATUSES),
+                "package_progress": package_progress,
                 "automatic_assignments_loaded": automatic_known}
 
     def record_grids(self, record):
@@ -111,44 +116,61 @@ class ReviewSession:
         return grids
 
     def record_packages(self, records):
-        """Zusammenhängende EGRID-Gruppen in ursprünglicher Importreihenfolge."""
-        parents = list(range(len(records)))
-
-        def root(index):
-            while parents[index] != index:
-                parents[index] = parents[parents[index]]
-                index = parents[index]
-            return index
-
-        by_grid = {}
-        for index, record in enumerate(records):
-            for grid in self.record_grids(record):
-                other = by_grid.setdefault(grid, index)
-                left, right = root(index), root(other)
-                parents[max(left, right)] = min(left, right)
+        """Ein Paket je EGRID; Fälle ohne EGRID bleiben einzelne Pakete."""
         packages = {}
-        for index, record in enumerate(records):
-            packages.setdefault(root(index), []).append(record)
+        for record in records:
+            grids = sorted(self.record_grids(record))
+            for grid in grids or [None]:
+                key = "egrid:" + grid if grid else "gvbsid:" + record["gvbsid"]
+                package = packages.setdefault(key, {"id": key, "egrid": grid, "records": []})
+                package["records"].append(record)
         return list(packages.values())
 
-    def queue(self):
-        records = self.require_store(active=True).records()
-        return [{**{key: record[key] for key in ("gvbsid", "purpose", "address", "status")},
-                 "package_id": package[0]["gvbsid"], "package_index": index}
-                for index, package in enumerate(self.record_packages(records))
-                for record in package if record["status"] not in FINISHED]
+    @staticmethod
+    def package_status(records):
+        statuses = {record["status"] for record in records}
+        if "Sonderfall" in statuses:
+            return "Sonderfall"
+        return "Abgeschlossen" if statuses <= FINISHED else "Offen"
 
-    def case(self, gvbsid):
+    def queue(self, view="open"):
+        if view not in QUEUE_STATUSES:
+            raise ReviewError("Unbekannte Warteliste. Bitte Offen, Sonderfälle oder Abgeschlossen wählen.")
+        records = self.require_store(active=True).records()
+        result = []
+        for index, package in enumerate(self.record_packages(records)):
+            members = package["records"]
+            status = self.package_status(members)
+            if status not in QUEUE_STATUSES[view]:
+                continue
+            controls = sorted({txt(record["raw"].get("Kontrollnummer")) or record["gvbsid"].rsplit("-", 1)[0]
+                               for record in members})
+            result.append({"gvbsid": members[0]["gvbsid"], "status": status,
+                           "package_id": package["id"], "package_index": index,
+                           "egrid": package["egrid"], "control_numbers": controls,
+                           "record_count": len(members)})
+        return result
+
+    def case(self, gvbsid, package_id=None):
         records = self.require_store(active=True).records()
         blocked = self.store.automatic_egids()
         target = next((record for record in records if record["gvbsid"] == gvbsid), None)
         if target is None:
             raise ReviewError("GVBSID nicht gefunden. Die Suche berücksichtigt auch abgeschlossene Fälle.")
+        packages = [(index, package) for index, package in enumerate(self.record_packages(records))
+                    if any(record["gvbsid"] == gvbsid for record in package["records"])]
+        selected_package = next(((index, package) for index, package in packages
+                                 if package_id is None or package["id"] == package_id), None)
+        if selected_package is None and package_id == "gvbsid:" + gvbsid:
+            selected_package = packages[0]  # Nach verlässlicher Geodatenauflösung zur EGRID wechseln.
+        if selected_package is None:
+            raise ConflictError("Das EGRID-Paket hat sich geändert. Bitte die Warteliste neu laden.")
+        package_index, package = selected_package
+        grouped = package["records"]
+        grids = {package["egrid"]} if package["egrid"] else set()
         cached = cached_context(self.geo_cache[gvbsid]) if gvbsid in self.geo_cache else {}
-        package_index, grouped = next((index, package)
-                                      for index, package in enumerate(self.record_packages(records))
-                                      if any(record["gvbsid"] == gvbsid for record in package))
-        grids = set().union(*(self.record_grids(record) for record in grouped))
+        if cached.get("package_id") not in (None, package["id"], "gvbsid:" + gvbsid):
+            cached = {}
         available = set()
         for record in grouped:
             available.update(record["candidates"] + record["suffix_candidates"] + record["assigned"])
@@ -163,7 +185,8 @@ class ReviewSession:
             record["raw"] = {key: value if isinstance(value, (str, int, float, bool, type(None))) else str(value)
                              for key, value in record["raw"].items()}
         return {"selected": gvbsid, "records": grouped, "egrids": sorted(grids),
-                "package_id": grouped[0]["gvbsid"], "package_index": package_index,
+                "package_id": package["id"], "package_index": package_index,
+                "package_status": self.package_status(grouped),
                 "egids": sorted(available, key=int), "geo": cached or None,
                 "blocked_egids": sorted(visible & (blocked or set()), key=int),
                 "assignable_egids": sorted(available - blocked, key=int) if blocked is not None else [],
@@ -232,11 +255,12 @@ class ReviewApplication:
                     if path == "/api/state":
                         return json_response(self.session.state())
                     if path == "/api/queue":
-                        return json_response({"records": self.session.queue()})
+                        view = parse_qs(parts.query).get("view", ["open"])[0]
+                        return json_response({"records": self.session.queue(view)})
                     if path == "/api/case":
                         query = parse_qs(parts.query)
                         gvbsid = query.get("gvbsid", [""])[0]
-                        return json_response(self.session.case(gvbsid))
+                        return json_response(self.session.case(gvbsid, query.get("package_id", [None])[0]))
             routes = {
                 "/api/database/select": lambda: self.database("select"),
                 "/api/database/create": lambda: self.database("create"),
@@ -306,11 +330,21 @@ class ReviewApplication:
         if not isinstance(data.get("decisions"), list):
             raise ReviewError("Ungueltige Entscheidungen.")
         with session.lock:
-            current = session.case(data.get("selected", ""))
+            current = session.case(data.get("selected", ""), data.get("package_id"))
+            if not current["egrids"]:
+                raise ReviewError("Ohne verlässlich bekannte EGRID kann kein vollständiges EGRID-Paket gespeichert werden.")
             allowed_records = {row["gvbsid"] for row in current["records"]}
             if not all(isinstance(row, dict) and row.get("gvbsid") in allowed_records for row in data["decisions"]):
                 raise ReviewError("Die Entscheidungen gehoeren nicht zum geoeffneten Fall.")
-            session.store.save(data["decisions"], current["assignable_egids"])
+            if len(data["decisions"]) != len(allowed_records) or {row["gvbsid"] for row in data["decisions"]} != allowed_records:
+                raise ConflictError("Es muss das gesamte EGRID-Paket gespeichert werden. Bitte das Paket neu laden.")
+            if any(not isinstance(row.get("status", "Abgeschlossen"), str) for row in data["decisions"]):
+                raise ReviewError("Ungültiger Bearbeitungsstatus.")
+            statuses = {row.get("status", "Abgeschlossen") for row in data["decisions"]}
+            if len(statuses) != 1:
+                raise ReviewError("Alle Fälle eines EGRID-Pakets müssen denselben Bearbeitungsstatus erhalten.")
+            session.store.save(data["decisions"], current["assignable_egids"],
+                               package_egrid=current["egrids"][0] if current["egrids"] else None)
             return session.state()
 
     def export(self):
@@ -336,7 +370,7 @@ class ReviewApplication:
     def geo(self, data):
         session = self.session
         with session.lock:
-            current = session.case(data.get("selected", ""))
+            current = session.case(data.get("selected", ""), data.get("package_id"))
             store, config, revision = session.store, dict(session.config), session.revision
             selected = next(record for record in current["records"] if record["gvbsid"] == current["selected"])
             request_id = session.geo_requests.get(current["selected"], 0) + 1
@@ -371,8 +405,9 @@ class ReviewApplication:
         with session.lock:
             if store is not session.store or revision != session.revision or session.geo_requests.get(current["selected"]) != request_id:
                 raise ConflictError("Datenbank oder Geokonfiguration wurde inzwischen geaendert. Bitte die Karte neu laden.")
+            context["package_id"] = current["package_id"]
             session.geo_cache[current["selected"]] = context
-            return session.case(current["selected"])["geo"]
+            return session.case(current["selected"], current["package_id"])["geo"]
 
 
 def create_app(preferences=None, dialogs=None, *, resume=True, geo_fetcher=None, gwr_path=None):

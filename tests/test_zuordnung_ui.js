@@ -56,7 +56,7 @@ function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"];
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,configure(value,view,layers,items){current=value;selectedEgid=null;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,showEmptyQueue,configure(value,view,layers,items,filter='open'){current=value;selectedEgid=null;dirty.clear();queueView=filter;document.getElementById('queue-view').value=filter;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, () => {apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
@@ -70,7 +70,8 @@ function runReviewUiTest(sources) {
   ui.configure(value, map, layers);
   ui.renderCase();
   const table = elements.matrix.children[0], header = table.children[0].children[0], identity = table.children[1].children[0].children[0];
-  check(elements["case-title"].textContent === "SYNTHETIC-1 (GVBSID)", "GVBSID in der Fallüberschrift kennzeichnen");
+  check(elements["case-title"].textContent === "EGRID CH-SYNTHETIC-1", "Das EGRID-Paket in der Fallüberschrift kennzeichnen");
+  check(elements["case-counts"].textContent === "(1 GVBSID/2 EGID)" && !elements["case-counts"].hidden, "Paketanzahlen direkt unter der EGRID anzeigen");
   check(identity.children[0].textContent === "SYNTHETIC-1 (GVBSID)", "GVBSID in der Tabellenzeile kennzeichnen");
   check(identity.children[1].textContent === "GVBS-Info:", "GVBS-Info als eigenen Abschnitt anzeigen");
   check(identity.children[2].tagName === "UL" && identity.children[2].children.length === 3, "Adresse, Zweckbestimmung und Gebäudevolumen als Aufzählung anzeigen");
@@ -83,6 +84,7 @@ function runReviewUiTest(sources) {
   check(header.children[2].children[1].textContent === "GWR-Adresse nicht verfügbar", "GVBS-Adresse niemals als GWR-Ersatz anzeigen");
   check(elements["left-pane"].style.getPropertyValue("--category-color") === "#FFF2CC", "Bearbeitungsbereich in der Farbe des ausgewählten Falls darstellen");
   check(!elements["case-category"].hidden && elements["case-category"].textContent.includes("Allgemeine Prüfung"), "Kategorie zusätzlich als Text anzeigen");
+  check(!identity.children.some(child => child.className === "row-category-label"), "Einheitliche Kategorie nicht zusätzlich an jeder GVBSID wiederholen");
   ui.renderGeo();
   check(layers.parcels.layers.length === 1 && layers.parcels.layers[0].options.pane === "parcel-boundaries", "Parzellengrenze in eigener Ebene darstellen");
   check(layers.mask.layers.length === 1 && layers.mask.layers[0].options.pane === "parcel-mask", "Abdunkelung getrennt von Grenzen und Gebäuden darstellen");
@@ -139,9 +141,10 @@ function runReviewUiTest(sources) {
     {...value.records[0], gvbsid: "SYNTHETIC-2", raw: {"Matching-Kategorie": "address_suffix_pair_lt4"}},
   ]};
   ui.configure(mixed, map, layers); ui.renderCase();
-  check(elements["left-pane"].style.getPropertyValue("--category-color") === "#F4B183", "Bei gemischter Gruppe entscheidet die ausgewählte GVBSID über die Bereichsfarbe");
+  check(elements["left-pane"].style.getPropertyValue("--category-color") === "#d9e2e6" && elements["case-category"].hidden, "Bei gemischten Kategorien keine einheitliche Paketkategorie vorgeben");
   const mixedRows = elements.matrix.children[0].children[1].children;
   check(mixedRows[0].style.getPropertyValue("--category-color") === "#E6C200" && mixedRows[1].style.getPropertyValue("--category-color") === "#F4B183", "Gruppierte Zeilen behalten jeweils ihre eigene Kategoriefarbe");
+  check(mixedRows.every(row => row.children[0].children.some(child => child.className === "row-category-label")), "Bei gemischten Kategorien jede GVBSID einzeln beschriften");
   for (const category of [undefined, "synthetic_unknown", "synthetic_invalid", "__proto__"]) {
     ui.configure({...value, records: [{...value.records[0], raw: {"Matching-Kategorie": category}}]}, map, layers);
     ui.renderCase();
@@ -173,6 +176,37 @@ function runReviewUiTest(sources) {
   ui.configure({...value, automatic_assignments_loaded: false}, map, layers); ui.renderCase();
   check(elements.save.disabled && elements.matrix.children[0].children[1].children[0].children[1].children[0].disabled, "Ohne bekannte automatische Zuordnungen bleiben Vergabe und Speichern gesperrt");
   check(!elements["assignment-lock-note"].hidden && elements["assignment-lock-note"].textContent.includes("Matching-Datei"), "Bei Altbeständen den nötigen vollständigen Import erklären");
+  check(elements.special.disabled, "Auch Sonderfälle erst mit bekannter automatischer Sperrliste speichern");
+  ui.configure({...value, egrids: []}, map, layers); ui.renderCase();
+  check(elements.save.disabled && elements.special.disabled, "Ohne bekannte EGRID keine einzelne GVBSID als vollständiges Paket abspeichern");
+  const statusRecords = [
+    {...value.records[0], status: "Sonderfall", version: 7},
+    {...value.records[0], gvbsid: "SYNTHETIC-2", status: "Offen", version: 3},
+    {...value.records[0], gvbsid: "SYNTHETIC-3", status: "Abgeschlossen", version: 2},
+  ];
+  ui.configure({...value, package_id: "egrid:CH-SYNTHETIC-1", records: statusRecords}, map, layers); ui.renderCase();
+  check(!elements.save.disabled && !elements.special.disabled, "Bei gemischten Statuswerten beide Paketaktionen zum Vereinheitlichen anbieten");
+  const statusIdentity = elements.matrix.children[0].children[1].children[0].children[0];
+  check(statusIdentity.children.some(child => child.className === "record-status is-special" && child.textContent.includes("Sonderfall")), "Sonderfall als sichtbaren Status an der GVBSID kennzeichnen");
+  ui.changed(statusRecords[1]);
+  const completedPayload = ui.decisionPayload("Abgeschlossen");
+  check(completedPayload.decisions.length === 3 && completedPayload.decisions.every(record => record.status === "Abgeschlossen"), "Speichern schliesst sämtliche Fälle des EGRID-Pakets gemeinsam ab");
+  check(completedPayload.decisions[0].assigned.length === 0 && completedPayload.decisions[0].version === 7, "Abschluss ohne EGID erhält die Versionsprüfung");
+  check(completedPayload.decisions.some(record => record.gvbsid === "SYNTHETIC-3"), "Auch unbearbeitete weitere Paketmitglieder werden einbezogen");
+  check(completedPayload.package_id === "egrid:CH-SYNTHETIC-1", "Beim Speichern die genaue EGRID-Paketauswahl übermitteln");
+  check(ui.decisionPayload("Sonderfall").decisions.every(record => record.status === "Sonderfall"), "Sonderfall-Aktion setzt einen ausdrücklichen Status");
+  window.confirm = () => false;
+  elements["queue-view"].value = "completed";
+  ui.switchQueueView("completed");
+  check(elements["queue-view"].value === "open", "Abgebrochener Wartelistenwechsel stellt die bisherige Auswahl wieder her");
+  check(ui.decisionPayload("Abgeschlossen").decisions.length === 3, "Abgebrochener Wartelistenwechsel erhält ungespeicherte Bearbeitungen");
+  ui.configure({...value, records: statusRecords.map(record => ({...record, status: "Sonderfall"}))}, map, layers); ui.renderCase();
+  check(elements.special.disabled && !elements.save.disabled, "Ein vollständig als Sonderfall markiertes Paket kann gemeinsam abgeschlossen werden");
+  ui.configure({...value, records: [{...value.records[0], status: "Abgeschlossen"}]}, map, layers); ui.renderCase();
+  check(elements.save.disabled && !elements.special.disabled, "Abgeschlossenen Fall als Sonderfall umtaggen können");
+  ui.configure(value, map, layers, [], "special"); ui.showEmptyQueue();
+  check(elements["case-title"].textContent.includes("Sonderfälle") && elements["queue-position"].textContent === "0 Pakete", "Leere Sonderfallwarteliste eindeutig benennen");
+  check(sources["src/egid_match/zuordnung/templates/zuordnung.html"].includes('id="special" class="danger"'), "Sonderfall-Knopf erhält die rote Darstellung");
   const packageQueue = [
     {gvbsid: "SYNTHETIC-1", package_id: "SYNTHETIC-1", package_index: 0},
     {gvbsid: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2},
@@ -190,13 +224,24 @@ function runReviewUiTest(sources) {
   ui.renderCase();
   check(ui.packageNavigation().previous === "SYNTHETIC-1" && ui.packageNavigation().next === null, "Zurück springt zum ersten offenen Fall des vorherigen Pakets");
   check(!elements.previous.disabled && elements.next.disabled, "Am letzten Paket nur Zurück aktivieren");
+  ui.configure({...value, package_id: "egrid:SYNTHETIC-A", package_index: 0}, map, layers, [
+    {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-A", package_index: 0},
+    {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-B", package_index: 1},
+  ]);
+  check(ui.packageNavigation().next === "SYNTHETIC-1" && ui.packageNavigation().nextPackage === "egrid:SYNTHETIC-B", "Auch bei derselben GVBSID die EGRID-Pakete getrennt navigieren");
   ui.configure({...value, selected: "SYNTHETIC-CLOSED", package_id: "SYNTHETIC-CLOSED", package_index: 1}, map, layers, packageQueue);
   check(ui.packageNavigation().previous === "SYNTHETIC-1" && ui.packageNavigation().next === "SYNTHETIC-3", "Ein über Suche geöffnetes abgeschlossenes Paket behält passende Nachbarpakete");
   ui.configure(value, map, layers, []); ui.renderCase();
   check(elements.previous.disabled && elements.next.disabled, "Ohne offene Pakete beide Richtungen sperren");
+  ui.configure({...value, records: Array.from({length: 4}, (_, index) => ({...value.records[0], gvbsid: `SYNTHETIC-${index + 1}`})),
+    egids: ["101", "102", "103"]}, map, layers); ui.renderCase();
+  check(elements["case-counts"].textContent === "(4 GVBSID/3 EGID)", "Anzahlen beim Paketwechsel aktualisieren");
+  check(!elements["case-category"].hidden && elements.matrix.children[0].children[1].children.every(row =>
+    !row.children[0].children.some(child => child.className === "row-category-label")), "Auch bei mehreren Gebäuden eine gemeinsame Kategorie nur einmal oben anzeigen");
   ui.configure(value, map, layers); ui.renderCase();
   ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, impossible: 0, remaining: 1}});
   check(elements["case-category"].hidden && !elements["left-pane"].classList.contains("has-category"), "Beim Datenbankwechsel die Kategoriefarbe und Beschriftung zurücksetzen");
+  check(elements["case-counts"].hidden && elements["case-counts"].textContent === "", "Alte Paketanzahlen beim Datenbankwechsel entfernen");
   check(apiCalls === 0, "Der synthetische Test ruft keinen Dienst auf");
   return assertions;
 }

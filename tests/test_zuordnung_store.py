@@ -201,7 +201,7 @@ class StoreTests(SyntheticMemory):
             {"gvbsid": rows[1]["gvbsid"], "version": 1, "status": "Unklar", "assigned": ["102"]},
             {"gvbsid": rows[2]["gvbsid"], "version": 1, "status": "Keine Zuordnung möglich", "assigned": []},
         ], {"101", "102", "103"})
-        self.assertEqual(store.progress(), {"total": 3, "completed": 1, "impossible": 1, "remaining": 1})
+        self.assertEqual(store.progress(), {"total": 3, "completed": 1, "impossible": 1, "special": 0, "remaining": 1})
         rows = store.records()
         self.assertEqual(rows[1]["assigned"], ["102"])
         store.save([{"gvbsid": rows[0]["gvbsid"], "version": rows[0]["version"], "status": "Zurückgestellt", "assigned": ["102"]}], {"102"})
@@ -218,10 +218,30 @@ class StoreTests(SyntheticMemory):
 
     def test_invalid_decisions_do_not_modify_records(self):
         store = self.store()
-        for status, assigned in (("Abgeschlossen", []), ("Keine Zuordnung möglich", ["101"]), ("Unbekannt", []), ("Offen", ["999"])):
+        for status, assigned in (("Keine Zuordnung möglich", ["101"]), ("Unbekannt", []), ("Offen", ["999"])):
             with self.subTest(status=status, assigned=assigned), self.assertRaises(ReviewError):
                 store.save([{"gvbsid": "SYNTHETIC-1", "version": 1, "status": status, "assigned": assigned}], {"101"})
         self.assertEqual(store.records()[0]["version"], 1)
+
+    def test_special_status_persists_and_exports_separately_from_open_and_completed(self):
+        store = self.store()
+        store.save([
+            {"gvbsid": "SYNTHETIC-1", "version": 1, "status": "Sonderfall", "assigned": []},
+            {"gvbsid": "SYNTHETIC-2", "version": 1, "status": "Abgeschlossen", "assigned": []},
+        ], set())
+        self.assertEqual(store.progress(), {"total": 3, "completed": 1, "impossible": 0, "special": 1, "remaining": 1})
+        store.import_rows(HEADERS, VALUES)
+        reopened = MemoryStore(store.path, connection=store.memory)
+        reopened.open()
+        self.assertEqual(reopened.records()[0]["status"], "Sonderfall")
+        workbook = store.export_workbook()
+        try:
+            self.assertEqual([row[0] for row in list(workbook["Sonderfälle"].values)[1:]], ["SYNTHETIC-1"])
+            self.assertEqual([row[0] for row in list(workbook["Abgeschlossene Fälle"].values)[1:]], ["SYNTHETIC-2"])
+            self.assertEqual([row[0] for row in list(workbook["Offene Fälle"].values)[1:]], ["SYNTHETIC-3"])
+            self.assertEqual(list(workbook["Sonderfälle"].values)[1][-3], "Sonderfall")
+        finally:
+            workbook.close()
 
     def test_invalid_import_is_atomic(self):
         store = self.store()
@@ -238,7 +258,7 @@ class StoreTests(SyntheticMemory):
         store.import_rows(headers, [values])
         workbook = store.export_workbook()
         try:
-            self.assertEqual(workbook.sheetnames, ["review_address_suffix", "Zuordnungen", "Offene Fälle", "Automatische Zuordnungen"])
+            self.assertEqual(workbook.sheetnames, ["review_address_suffix", "Zuordnungen", "Offene Fälle", "Sonderfälle", "Abgeschlossene Fälle", "Automatische Zuordnungen"])
             exported = list(workbook.worksheets[0].values)
             self.assertEqual(exported[1][:len(values)], tuple(values))
             self.assertEqual(exported[2][8], 0)

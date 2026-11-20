@@ -84,30 +84,43 @@ eine separate neue Datenbank angelegt werden.
 
 ## Bearbeiten
 
-Der linke Bearbeitungsbereich übernimmt die Kategoriefarbe der aktuell
-ausgewählten GVBSID aus der Matching-Farbpalette. Ein farbiges Etikett nennt die
-Kategorie zusätzlich als Text. In einer Parzellengruppe zeigt jede Tabellenzeile
-ihre eigene Kategorie und Farbe; die Bereichsfarbe richtet sich nach dem über
-Warteschlange oder Suche geöffneten Fall. Allgemeine Suffix-Prüffälle sind
+Haben alle GVBSIDs eines EGRID-Pakets dieselbe Kategorie, erscheint diese einmal
+unter der EGRID-Überschrift. Die Wiederholungen an den einzelnen GVBSIDs entfallen,
+und der Bearbeitungsbereich übernimmt die gemeinsame Matching-Kategoriefarbe.
+Enthält das Paket unterschiedliche Kategorien, bleibt der Paketrahmen neutral;
+jede GVBSID trägt dann ihre eigene Kategorie und Zeilenfarbe. Allgemeine Suffix-Prüffälle sind
 hellgelb, einzelne Gebäude mit Suffixadressen dunkelgelb und manuell zu prüfende
 Suffix-Paare orange. Bereits gespeicherte Fälle verwenden ihre importierte
 `Matching-Kategorie`; fehlt diese Angabe, bleibt die Darstellung neutral.
 
-Die Liste links enthält offene, unklare und zurückgestellte Fälle. GVBSIDs mit
-gemeinsamer importierter oder verlässlich ermittelter EGRID werden gemeinsam
-angezeigt. Fehlt eine verlässliche Parzellenbeziehung, wird keine Gruppierung
-erfunden. Zweckbestimmung steht jeweils direkt hinter der GVBSID; darunter
+Die Liste links enthält **einen Eintrag je EGRID-Paket**, mit EGRID,
+Kontrollnummern und Anzahl der importierten Gebäude. Alle importierten Prüffälle
+derselben verlässlich bekannten EGRID werden gemeinsam angezeigt, auch bei
+unterschiedlichen Kontrollnummern und Gebäudenummern. Eine GVBSID mit mehreren
+EGRIDs kann zu mehreren Paketen gehören; jede EGRID bleibt ein eigener Eintrag.
+Fehlt eine verlässliche EGRID, bleibt der Fall als eigener Klärungseintrag
+sichtbar. Paketaktionen sind erst nach verlässlicher EGRID-Auflösung möglich,
+damit keine einzelne GVBSID irrtümlich als vollständige Parzelle gespeichert wird.
+Zweckbestimmung steht jeweils direkt hinter der GVBSID; darunter
 erscheint das Gebäudevolumen aus der importierten Spalte `Kubatur` in m³.
 Fehlt ein Wert, steht dort `Nicht angegeben`.
 
+Über **Warteliste** wird zwischen **Offen**, **Sonderfälle** und **Abgeschlossen**
+gewechselt. Der ausgewählte Bereich bestimmt die Fallauswahl und Paketnavigation.
+Vor einem Listenwechsel fragt die App nach, falls ungespeicherte Änderungen
+vorhanden sind. Ein Paket erscheint nur einmal: Sobald ein Mitglied Sonderfall
+ist, steht es unter Sonderfälle; erst wenn alle Mitglieder abgeschlossen sind,
+steht es unter Abgeschlossen. Sonst steht es unter Offen. Frühere Teilbearbeitungen
+bleiben so sichtbar. Ein erneuter Klick auf Sonderfall oder Entscheidung speichern
+setzt anschliessend alle Fälle dieses Pakets auf denselben Status.
+
 **Weiter** und **Zurück** wechseln jeweils zum nächsten oder vorherigen Paket
-mit offenen Fällen und überspringen alle weiteren GVBSIDs des angezeigten
-Pakets. Ein Paket umfasst die über gemeinsame EGRIDs verbundenen Fälle;
-dadurch können auch mehrere zusammenhängende Parzellen gemeinsam erscheinen.
-Ohne verlässliche EGRID ist jeder Fall ein eigenes Paket. Die Reihenfolge folgt
+der gewählten Warteliste und überspringen alle weiteren GVBSIDs des angezeigten
+Pakets. Ein Paket umfasst genau die Fälle einer EGRID. Ohne verlässliche EGRID
+ist jeder Fall ein eigenes Paket. Die Reihenfolge folgt
 dem ersten Auftreten im Import, auch wenn die Mitglieder eines Pakets dort
 verstreut standen. Die Anzeige nennt die aktuelle Paketnummer. Einzelne GVBSIDs
-bleiben über die Warteschlange und die Suche direkt erreichbar. Beim Blättern
+bleiben über die Suche erreichbar; geöffnet wird ihr EGRID-Paket. Beim Blättern
 bleibt die Rückfrage zu ungespeicherten Änderungen bestehen.
 
 Jede Matrix-Checkbox stellt eine Beziehung dar. Eine GVBSID darf mehrere EGID
@@ -127,20 +140,31 @@ widerspricht, bleibt sie als Konflikt sichtbar. Mit **Gesperrte Zuordnung
 entfernen** wird sie zur Entfernung vorgemerkt und erst durch **Entscheidung
 speichern** tatsächlich geändert. Die betreffende EGID bleibt gesperrt.
 
-**Entscheidung speichern** schreibt die geänderten GVBSIDs gemeinsam in einer
-SQLite-Transaktion. Bei einem Versionskonflikt, zum Beispiel durch eine zweite
+**Entscheidung speichern** setzt **alle importierten Prüffälle der gesamten
+EGRID** auf **Abgeschlossen**, auch ohne EGID-Zuordnung. Der rote Knopf
+**Sonderfall** setzt ebenfalls **alle Fälle der EGRID** auf **Sonderfall**.
+Dies gilt für sämtliche Kontrollnummern und Gebäudenummern des Pakets,
+einschliesslich unveränderter oder zuvor anders markierter Zeilen. Zuordnungen
+und Kommentare werden je GVBSID erhalten beziehungsweise mit den vorgenommenen
+Änderungen gespeichert. Sonderfälle werden direkt an jeder GVBSID gekennzeichnet.
+
+Die Änderungen werden gemeinsam in einer SQLite-Transaktion gespeichert.
+Der Server weist unvollständige Pakete und gemischte Zielstatuswerte zurück.
+Sind inzwischen weitere Fälle zur EGRID hinzugekommen, muss das Paket neu geladen
+werden. Bei einer GVBSID, die zu mehreren EGRIDs gehört, ist ihr gespeicherter
+Status auch in den anderen zugehörigen Paketen sichtbar.
+Bei einem Versionskonflikt, zum Beispiel durch eine zweite
 Browser-Registerkarte, wird der gesamte Speichervorgang zurückgerollt. Neu laden
 und die Entscheidung auf Basis des aktuellen Stands erneut treffen.
 
-- **Abgeschlossen** benötigt mindestens eine zugeteilte EGID.
-- **Keine Zuordnung möglich** benötigt eine leere Zuordnung.
-- Beide Status verschwinden aus der normalen Warteschlange.
-- **Offen**, **Unklar** und **Zurückgestellt** bleiben in der Warteschlange.
+- **Offen** zeigt noch nicht vollständig abgeschlossene Pakete ohne Sonderfall.
+- **Sonderfälle** zeigt Pakete mit mindestens einem Sonderfall, mit oder ohne EGID-Zuordnung.
+- **Abgeschlossen** zeigt vollständig abgeschlossene Pakete; der frühere Status Keine Zuordnung möglich zählt dabei als abgeschlossen.
 
 Über **GVBSID eingeben → Bearbeiten** ist jeder gespeicherte Fall erreichbar,
-auch ein abgeschlossener. Ein geänderter offener Status nimmt ihn wieder in die
-Warteschlange auf. Nicht gespeicherte Änderungen werden beim Wechsel nicht
-stillschweigend verworfen. Der Fortschritt zählt GVBSIDs, nicht Parzellen.
+auch ein abgeschlossener. Er kann dort bearbeitet und erneut abgeschlossen oder
+als Sonderfall markiert werden. Nicht gespeicherte Änderungen werden beim Wechsel nicht
+stillschweigend verworfen. Der Fortschritt zählt EGRID-Pakete.
 
 ## Karte und amtliche Geodaten
 
@@ -224,7 +248,10 @@ nicht erforderlich. Die Ausgabe enthält:
 2. **Zuordnungen**: eine Zeile je gespeicherter GVBSID-EGID-Beziehung, inklusive
    Zweckbestimmung, Status und Kommentar.
 3. **Offene Fälle**: alle Fälle mit Status Offen, Unklar oder Zurückgestellt.
-4. **Automatische Zuordnungen**: die bekannte globale EGID-Sperrliste für einen
+4. **Sonderfälle**: alle Fälle mit Status Sonderfall.
+5. **Abgeschlossene Fälle**: alle Fälle mit Status Abgeschlossen oder dem früheren
+   Status Keine Zuordnung möglich.
+6. **Automatische Zuordnungen**: die bekannte globale EGID-Sperrliste für einen
    erneuten Import. Bei Altbeständen ohne geladene Sperrliste fehlt dieses Blatt.
 
 Mehrere EGID werden vollständig aufgelistet. Abgeschlossene Fälle und solche

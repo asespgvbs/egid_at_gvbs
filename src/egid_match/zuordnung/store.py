@@ -14,8 +14,10 @@ from .. import matching
 from ..common import ConflictError, ReviewError, egid_text, identifiers
 
 
-STATUSES = ("Offen", "Abgeschlossen", "Unklar", "Zurückgestellt", "Keine Zuordnung möglich")
+STATUSES = ("Offen", "Sonderfall", "Abgeschlossen", "Unklar", "Zurückgestellt", "Keine Zuordnung möglich")
 FINISHED = {"Abgeschlossen", "Keine Zuordnung möglich"}
+OPEN_STATUSES = {"Offen", "Unklar", "Zurückgestellt"}
+QUEUE_STATUSES = {"open": OPEN_STATUSES, "special": {"Sonderfall"}, "completed": FINISHED}
 SHEET = "review_address_suffix"
 PRODUCT = "egid-match-manual-review"
 AUTOMATIC_SHEET = "Automatische Zuordnungen"
@@ -254,13 +256,20 @@ class ReviewStore:
         total = sum(counts.values())
         return {"total": total, "completed": counts.get("Abgeschlossen", 0),
                 "impossible": counts.get("Keine Zuordnung möglich", 0),
-                "remaining": total - sum(counts.get(status, 0) for status in FINISHED)}
+                "special": counts.get("Sonderfall", 0),
+                "remaining": sum(counts.get(status, 0) for status in OPEN_STATUSES)}
 
-    def save(self, decisions, allowed_egids):
+    def save(self, decisions, allowed_egids, *, package_egrid=None):
         if not isinstance(decisions, list) or not decisions:
             raise ReviewError("Keine Entscheidungen zum Speichern vorhanden.")
         seen = set()
         with self.connection(write=True) as connection:
+            if package_egrid is not None:
+                members = {row[0] for row in connection.execute("SELECT gvbsid, grids FROM review_records")
+                           if package_egrid in decode(row[1])}
+                submitted = {matching.txt(row.get("gvbsid")) for row in decisions}
+                if not members <= submitted:
+                    raise ConflictError("Das EGRID-Paket hat neue Fälle. Bitte das gesamte Paket neu laden.")
             blocked = self._automatic_egids(connection)
             if blocked is None:
                 raise ReviewError("Bitte zuerst die vollständige Matching-Datei importieren, damit automatisch zugeteilte EGID gesperrt sind.")
@@ -283,11 +292,9 @@ class ReviewStore:
                                       + ", ".join(sorted(assigned & blocked, key=int)))
                 if not assigned <= set(allowed_egids):
                     raise ReviewError("Eine EGID gehört nicht zu den verfügbaren Kandidaten oder verlässlich geladenen Geodaten.")
-                status = decision.get("status", "Abgeschlossen" if assigned else "Keine Zuordnung möglich")
+                status = decision.get("status", "Abgeschlossen")
                 if status not in STATUSES:
                     raise ReviewError("Unbekannter Bearbeitungsstatus.")
-                if status == "Abgeschlossen" and not assigned:
-                    raise ReviewError("Abgeschlossen erfordert mindestens eine zugeteilte EGID.")
                 if status == "Keine Zuordnung möglich" and assigned:
                     raise ReviewError("Keine Zuordnung möglich darf keine zugeteilte EGID enthalten.")
                 comment = decision.get("comment", "")
@@ -324,6 +331,10 @@ class ReviewStore:
         relations.append(["GVBSID", "Zweckbestimmung", "EGID", "Bearbeitungsstatus", "Kommentar"])
         pending = workbook.create_sheet("Offene Fälle")
         pending.append(headers + extras)
+        special = workbook.create_sheet("Sonderfälle")
+        special.append(headers + extras)
+        completed = workbook.create_sheet("Abgeschlossene Fälle")
+        completed.append(headers + extras)
         if blocked is not None:
             automatic = workbook.create_sheet(AUTOMATIC_SHEET)
             automatic.append(["EGID"])
@@ -333,8 +344,12 @@ class ReviewStore:
             raw = decode(record["raw"])
             values = [raw.get(header) for header in headers] + [", ".join(assigned.get(record["gvbsid"], [])), record["status"], record["comment"], record["updated_at"]]
             original.append(values)
-            if record["status"] not in FINISHED:
+            if record["status"] in OPEN_STATUSES:
                 pending.append(values)
+            elif record["status"] == "Sonderfall":
+                special.append(values)
+            elif record["status"] in FINISHED:
+                completed.append(values)
             for egid in assigned.get(record["gvbsid"], []):
                 relations.append([record["gvbsid"], record["purpose"], egid, record["status"], record["comment"]])
         for sheet in workbook.worksheets:

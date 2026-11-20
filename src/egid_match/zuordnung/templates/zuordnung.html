@@ -30,16 +30,16 @@
   </div>
   <main id="workspace">
     <section id="left-pane" class="left-pane" aria-label="GVBSID-Zuordnung">
-      <div class="case-heading"><div><span class="eyebrow">ZUORDNUNG</span><h1 id="case-title">Prüffälle laden</h1><span id="case-category" class="category-badge" role="status" hidden></span></div><span id="queue-position" class="badge">Gesperrt</span></div>
-      <div id="queue-bar"><label for="queue">Warteschlange</label><select id="queue" disabled><option>Noch keine Daten geladen</option></select></div>
+      <div class="case-heading"><div><h1 id="case-title">Prüffälle laden</h1><strong id="case-counts" class="case-counts" aria-live="polite" hidden></strong><span id="case-category" class="category-badge" role="status" hidden></span></div><span id="queue-position" class="badge">Gesperrt</span></div>
+      <div id="queue-filter-bar"><label for="queue-view">Warteliste</label><select id="queue-view" disabled><option value="open">Offen</option><option value="special">Sonderfälle</option><option value="completed">Abgeschlossen</option></select></div>
+      <div id="queue-bar"><label for="queue">EGRID-Paket</label><select id="queue" disabled><option>Noch keine Daten geladen</option></select></div>
       <p id="empty-note" class="empty-note">Zuerst eine Datenbank auswählen. Danach Excel laden oder gespeicherte Daten bewusst aktivieren.</p>
       <div id="case-content" hidden>
-        <div class="case-meta"><strong>EGRID</strong><span id="egrids"></span><span id="dirty" hidden>Nicht gespeicherte Änderungen</span></div>
-        <p class="hint">Checkboxen ordnen zu. Details zur GVBSID erscheinen beim Darüberfahren oder Antippen. Kommentare lassen sich unterhalb der GVBSID aufklappen. Ein Klick auf eine EGID hebt sie auf der Karte hervor.</p>
+        <div class="case-meta"><span id="dirty" hidden>Nicht gespeicherte Änderungen</span></div>
         <p id="assignment-lock-note" class="assignment-lock-note" role="status" hidden></p>
         <div id="matrix" class="matrix-wrap"></div>
       </div>
-      <footer class="case-actions"><button id="previous" class="secondary" disabled title="Zum vorherigen Paket mit offenen Fällen wechseln">← Zurück</button><button id="save" disabled title="Mit EGID-Zuordnung abschliessen; ohne Zuordnung als «Keine Zuordnung möglich» speichern.">Entscheidung speichern</button><button id="next" class="secondary" disabled title="Zum nächsten Paket mit offenen Fällen wechseln">Weiter →</button></footer>
+      <footer class="case-actions"><button id="previous" class="secondary" disabled title="Zum vorherigen EGRID-Paket wechseln">← Zurück</button><div class="decision-actions"><button id="save" disabled title="Alle Fälle der EGRID gemeinsam als Abgeschlossen speichern, auch ohne EGID-Zuordnung.">Entscheidung speichern</button><button id="special" class="danger" disabled title="Alle Fälle der EGRID gemeinsam als Sonderfall speichern.">Sonderfall</button></div><button id="next" class="secondary" disabled title="Zum nächsten EGRID-Paket wechseln">Weiter →</button></footer>
     </section>
     <div id="divider" role="separator" aria-label="Breite der Zuordnung ändern" aria-orientation="vertical" aria-valuenow="50" tabindex="0"></div>
     <section class="map-pane" aria-label="GeoBS-Karte">

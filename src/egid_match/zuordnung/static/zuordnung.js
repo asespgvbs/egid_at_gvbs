@@ -5,6 +5,8 @@ const token = reviewConfig.token;
 const categoryColors = reviewConfig.category_colors || {};
 const $ = id => document.getElementById(id);
 let state = null, current = null, queue = [], dirty = new Set(), busy = false, generation = 0;
+let queueView = "open";
+const queueLabels = {open: "Offen", special: "Sonderfälle", completed: "Abgeschlossen"};
 let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new Map(), selectedEgid = null;
 let geoRequestId = 0;
 let egidRenderer = null;
@@ -30,6 +32,12 @@ function recordCategory(record) {
   return {name, color, label: Object.hasOwn(labels, name) ? labels[name] : name || "Kategorie unbekannt"};
 }
 
+function packageCategory() {
+  const categories = (current?.records || []).map(recordCategory);
+  const first = categories[0];
+  return first?.name && categories.every(category => category.name === first.name) ? first : null;
+}
+
 function isBlockedEgid(egid) {
   return Boolean(current?.blocked_egids?.includes(String(egid)));
 }
@@ -46,12 +54,16 @@ function paintCategory(element, category) {
 }
 
 function renderCategoryTheme() {
-  const record = current?.records.find(item => item.gvbsid === current.selected);
-  const category = recordCategory(record), badge = $("case-category");
-  paintCategory($("left-pane"), category);
-  badge.textContent = category.label;
-  badge.title = category.name;
-  badge.hidden = !record;
+  const category = packageCategory(), badge = $("case-category");
+  paintCategory($("left-pane"), category || recordCategory(null));
+  badge.textContent = category?.label || "";
+  badge.title = category?.name || "";
+  badge.hidden = !category;
+  const counts = $("case-counts");
+  counts.hidden = !current;
+  counts.textContent = current
+    ? `(${new Set(current.records.map(item => item.gvbsid)).size} GVBSID/${new Set(current.egids).size} EGID)`
+    : "";
 }
 
 function createTopPanel() {
@@ -153,13 +165,14 @@ function packageNavigation() {
   const position = packages.findIndex(item => item.id === selected);
   let previous = null, next = null;
   if (current && position >= 0) {
-    previous = packages[position - 1]?.gvbsid || null;
-    next = packages[position + 1]?.gvbsid || null;
+    previous = packages[position - 1] || null;
+    next = packages[position + 1] || null;
   } else if (current && Number.isInteger(current.package_index)) {
-    previous = packages.filter(item => item.index < current.package_index).at(-1)?.gvbsid || null;
-    next = packages.find(item => item.index > current.package_index)?.gvbsid || null;
+    previous = packages.filter(item => item.index < current.package_index).at(-1) || null;
+    next = packages.find(item => item.index > current.package_index) || null;
   }
-  return {packages, position, previous, next};
+  return {packages, position, previous: previous?.gvbsid || null, next: next?.gvbsid || null,
+    previousPackage: previous?.id || null, nextPackage: next?.id || null};
 }
 
 function gates() {
@@ -167,10 +180,10 @@ function gates() {
   for (const id of ["select-db", "new-db"]) $(id).disabled = busy;
   $("import").disabled = busy || !database;
   $("activate").disabled = busy || !database || !state?.progress.total;
-  for (const id of ["search", "search-button", "export", "queue"]) $(id).disabled = busy || !active;
-  const selectedRecord = current?.records.find(record => record.gvbsid === current.selected);
-  const openDecision = selectedRecord && !["Abgeschlossen", "Keine Zuordnung möglich"].includes(selectedRecord.status);
-  $("save").disabled = busy || !active || !current?.automatic_assignments_loaded || (!dirty.size && !openDecision);
+  for (const id of ["search", "search-button", "export", "queue", "queue-view"]) $(id).disabled = busy || !active;
+  const canSave = !busy && active && current?.automatic_assignments_loaded && current.egrids.length === 1 && current.records.length;
+  $("save").disabled = !canSave || (!dirty.size && current.records.every(record => record.status === "Abgeschlossen"));
+  $("special").disabled = !canSave || (!dirty.size && current.records.every(record => record.status === "Sonderfall"));
   const navigation = packageNavigation();
   $("previous").disabled = busy || !active || !navigation.previous;
   $("next").disabled = busy || !active || !navigation.next;
@@ -193,13 +206,14 @@ function applyState(value) {
   topPanel.setReady(Boolean(value.database && value.active));
   $("map").style.pointerEvents = value.active ? "" : "none";
   $("database-path").textContent = value.database || "Keine Datenbank ausgewählt";
-  const p = value.progress;
+  const p = value.package_progress || value.progress;
   $("progress").replaceChildren();
-  for (const [label, count] of [["Gesamt", p.total], ["Abgeschlossen", p.completed], ["Keine Zuordnung möglich", p.impossible], ["Noch zu bearbeiten", p.remaining]]) {
+  for (const [label, count] of [["Pakete gesamt", p.total], ["Abgeschlossen", p.completed], ["Sonderfälle", p.special || 0], ["Offen", p.remaining]]) {
     const span = node("span", label + " "); span.append(node("b", String(count))); $("progress").append(span);
   }
   if (!value.active) {
     generation++; current = null; dirty.clear();
+    queueView = "open"; $("queue-view").value = queueView;
     renderCategoryTheme();
     $("case-content").hidden = true; $("empty-note").hidden = false;
     $("empty-note").textContent = value.database ? "Schritt 2 bestätigen: Excel laden oder gespeicherte Daten aktivieren." : "Zuerst eine Datenbank auswählen oder neu erstellen.";
@@ -217,16 +231,20 @@ function canLeave() {
 }
 
 async function refreshQueue(stamp = null) {
-  const value = await api("/api/queue");
-  if (stamp !== null && stamp !== generation) return;
+  const view = queueView;
+  const value = await api("/api/queue?view=" + encodeURIComponent(view));
+  if (view !== queueView || (stamp !== null && stamp !== generation)) return;
   queue = value.records;
+  $("queue-view").value = queueView;
   $("queue").replaceChildren();
   if (!queue.length) $("queue").append(node("option", "Keine Fälle in der Warteschlange"));
   for (const record of queue) {
-    const option = node("option", `${record.gvbsid} – ${record.purpose || "Zweckbestimmung fehlt"} · ${record.status}`);
-    option.value = record.gvbsid; $("queue").append(option);
+    const label = record.egrid ? `EGRID ${record.egrid}` : `Ohne EGRID · ${record.gvbsid}`;
+    const controls = record.control_numbers?.length ? ` · KN ${record.control_numbers.join(", ")}` : "";
+    const option = node("option", `${label}${controls} · ${record.record_count || 1} Gebäude · ${record.status}`);
+    option.value = record.package_id || record.gvbsid; $("queue").append(option);
   }
-  if (current && queue.some(record => record.gvbsid === current.selected)) $("queue").value = current.selected;
+  if (current && queue.some(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected))) $("queue").value = current.package_id || current.selected;
   gates();
 }
 
@@ -316,19 +334,20 @@ const recordInfo = createRecordInfo();
 function renderCase() {
   recordInfo.hide();
   renderCategoryTheme();
+  const commonCategory = packageCategory();
   $("case-content").hidden = false; $("empty-note").hidden = true;
-  $("case-title").textContent = `${current.selected} (GVBSID)`;
-  $("egrids").textContent = current.egrids.join(", ") || "Keine verlässliche EGRID vorhanden";
-  const position = queue.findIndex(record => record.gvbsid === current.selected);
+  $("case-title").textContent = current.egrids.length ? `EGRID ${current.egrids.join(", ")}` : `${current.selected} (ohne EGRID)`;
+  const position = queue.findIndex(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected));
   const navigation = packageNavigation();
   $("queue-position").textContent = navigation.position < 0 ? "Über Suche geöffnet"
     : `Paket ${navigation.position + 1} / ${navigation.packages.length}`;
   $("queue-position").title = `${current.records.length} GVBSID im angezeigten Paket`;
-  if (position >= 0) $("queue").value = current.selected;
+  if (position >= 0) $("queue").value = current.package_id || current.selected;
   const lockNote = $("assignment-lock-note");
-  lockNote.hidden = Boolean(current.automatic_assignments_loaded && !current.blocked_egids?.length);
+  lockNote.hidden = Boolean(current.automatic_assignments_loaded && current.egrids.length && !current.blocked_egids?.length);
   lockNote.textContent = !current.automatic_assignments_loaded
     ? "Bitte die vollständige Matching-Datei importieren. Ohne die Liste automatischer Zuordnungen bleibt die Vergabe gesperrt."
+    : !current.egrids.length ? "Die EGRID ist noch nicht verlässlich bekannt. Paketaktionen sind erst nach Klärung der EGRID möglich."
     : "Graue EGID sind bereits automatisch zugeteilt und können nicht erneut vergeben werden.";
   const table = node("table"), head = node("thead"), headings = node("tr");
   headings.append(node("th", "GVBS"));
@@ -357,9 +376,12 @@ function renderCase() {
       node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`),
       node("li", `Gebäudevolumen: ${volume ? volume + " m³" : "Nicht angegeben"}`));
     identity.append(trigger, node("strong", "GVBS-Info:", "gvbs-info-title"), info);
-    const categoryLabel = node("span", category.label, "row-category-label");
-    categoryLabel.title = category.name;
-    identity.append(categoryLabel);
+    if (!commonCategory) {
+      const categoryLabel = node("span", category.label, "row-category-label");
+      categoryLabel.title = category.name;
+      identity.append(categoryLabel);
+    }
+    identity.append(node("span", `Status: ${record.status}`, record.status === "Sonderfall" ? "record-status is-special" : "record-status"));
     const conflicts = record.assigned.filter(isBlockedEgid);
     if (conflicts.length) {
       const note = node("div", undefined, "assignment-conflict");
@@ -403,9 +425,13 @@ function renderCase() {
   gates();
 }
 
-async function openCase(gvbsid, check = true) {
-  if (check && !canLeave()) { if (current) $("queue").value = current.selected; return; }
-  const value = await api("/api/case?gvbsid=" + encodeURIComponent(gvbsid));
+function casePath(gvbsid, packageId = null) {
+  return "/api/case?gvbsid=" + encodeURIComponent(gvbsid) + (packageId ? "&package_id=" + encodeURIComponent(packageId) : "");
+}
+
+async function openCase(gvbsid, check = true, packageId = null) {
+  if (check && !canLeave()) { if (current) $("queue").value = current.package_id || current.selected; return; }
+  const value = await api(casePath(gvbsid, packageId));
   current = value; dirty.clear(); selectedEgid = null; generation++;
   renderCase(); renderGeo();
   loadGeo().catch(error => message(error.message, true));
@@ -415,13 +441,46 @@ async function activate(value) {
   applyState(value); current = null; dirty.clear(); generation++;
   renderCategoryTheme();
   $("case-content").hidden = true; clearMap(); await refreshQueue();
-  if (queue.length) await openCase(queue[0].gvbsid, false);
-  else {
-    $("case-title").textContent = "Warteschlange abgeschlossen";
-    $("empty-note").hidden = false;
-    $("empty-note").textContent = "Alle Fälle sind abgeschlossen oder ohne Zuordnung. Über die Suche können sie jederzeit wieder geöffnet werden.";
-    $("queue-position").textContent = "0 offen";
+  if (queue.length) await openCase(queue[0].gvbsid, false, queue[0].package_id);
+  else showEmptyQueue();
+}
+
+function showEmptyQueue() {
+  current = null; dirty.clear(); generation++; renderCategoryTheme();
+  $("case-content").hidden = true; $("empty-note").hidden = false;
+  $("case-title").textContent = `${queueLabels[queueView]} · Keine Fälle`;
+  $("empty-note").textContent = "Diese Warteliste ist leer. Wähle eine andere Warteliste oder öffne eine GVBSID über die Suche.";
+  $("queue-position").textContent = "0 Pakete";
+  clearMap();
+}
+
+async function switchQueueView(view) {
+  if (!canLeave()) {$("queue-view").value = queueView; return;}
+  const previousView = queueView;
+  queueView = view;
+  try {await activate(state);}
+  catch (error) {queueView = previousView; $("queue-view").value = previousView; throw error;}
+}
+
+function decisionPayload(status) {
+  const selected = current.selected;
+  return {selected, package_id: current.package_id, decisions: current.records.map(record => ({gvbsid: record.gvbsid, version: record.version,
+    assigned: record.assigned, comment: record.comment, status}))};
+}
+
+async function saveDecision(status) {
+  const packageId = current.package_id || current.selected;
+  const oldIndex = queue.findIndex(record => (record.package_id || record.gvbsid) === packageId);
+  const value = await api("/api/save", decisionPayload(status));
+  dirty.clear(); applyState(value); await refreshQueue();
+  const same = queue.find(record => (record.package_id || record.gvbsid) === packageId);
+  if (same) await openCase(same.gvbsid, false, same.package_id);
+  else if (queue.length) {
+    const next = queue[Math.min(Math.max(oldIndex, 0), queue.length - 1)];
+    await openCase(next.gvbsid, false, next.package_id);
   }
+  else showEmptyQueue();
+  message(status === "Sonderfall" ? "Gesamtes EGRID-Paket als Sonderfall gespeichert." : "Gesamtes EGRID-Paket abgeschlossen.");
 }
 
 function ensureMap() {
@@ -548,14 +607,14 @@ function selectEgid(egid) {
 
 async function loadGeo() {
   if (!current) return;
-  const selected = current.selected, stamp = generation;
+  const selected = current.selected, packageId = current.package_id, stamp = generation;
   const requestId = ++geoRequestId;
   if (!ensureMap()) return;
   let geo;
-  try {geo = await api("/api/geo", {selected});}
+  try {geo = await api("/api/geo", {selected, package_id: packageId});}
   catch (error) {if (stamp !== generation || requestId !== geoRequestId) return; throw error;}
   if (stamp !== generation || requestId !== geoRequestId || current?.selected !== selected) return;
-  const refreshed = await api("/api/case?gvbsid=" + encodeURIComponent(selected));
+  const refreshed = await api(casePath(selected, packageId));
   if (stamp !== generation || requestId !== geoRequestId || current?.selected !== selected) return;
   applyGeoCase(refreshed, geo); renderGeo();
   await refreshQueue(stamp);
@@ -574,20 +633,15 @@ $("new-db").addEventListener("click", () => action(async () => {if (!canLeave())
 $("import").addEventListener("click", () => action(async () => {if (!canLeave()) return; const value = await api("/api/import", {}); if (!value.cancelled) {await activate(value); message(`${value.imported} Zeilen übernommen. Vorhandene manuelle Entscheidungen bleiben erhalten.`);}}));
 $("activate").addEventListener("click", () => action(async () => {if (!canLeave()) return; await activate(await api("/api/activate", {})); message("Gespeicherter Bearbeitungsstand aktiviert.");}));
 $("search-form").addEventListener("submit", event => {event.preventDefault(); action(async () => {const id = $("search").value.trim(); if (id) await openCase(id);});});
-$("queue").addEventListener("change", () => action(() => openCase($("queue").value)));
-$("previous").addEventListener("click", () => action(async () => {const target = packageNavigation().previous; if (target) await openCase(target);}));
-$("next").addEventListener("click", () => action(async () => {const target = packageNavigation().next; if (target) await openCase(target);}));
-$("save").addEventListener("click", () => action(async () => {
-  const selected = current.selected, oldIndex = queue.findIndex(record => record.gvbsid === selected);
-  const edited = current.records.filter(record => dirty.has(record.gvbsid));
-  const recordsToSave = edited.length ? edited : current.records.filter(record => record.gvbsid === selected);
-  const decisions = recordsToSave.map(record => ({gvbsid: record.gvbsid, version: record.version, assigned: record.assigned, comment: record.comment}));
-  const value = await api("/api/save", {selected, decisions}); dirty.clear(); applyState(value); await refreshQueue();
-  if (queue.some(record => record.gvbsid === selected)) await openCase(selected, false);
-  else if (queue.length) await openCase(queue[Math.min(Math.max(oldIndex, 0), queue.length - 1)].gvbsid, false);
-  else {current = null; generation++; renderCategoryTheme(); $("case-content").hidden = true; $("empty-note").hidden = false; $("empty-note").textContent = "Alle Fälle bearbeitet. Abgeschlossene Fälle bleiben über die Suche erreichbar."; $("case-title").textContent = "Warteschlange abgeschlossen"; $("queue-position").textContent = "0 offen"; clearMap();}
-  message("Entscheidung gespeichert.");
+$("queue").addEventListener("change", () => action(async () => {
+  const entry = queue.find(record => (record.package_id || record.gvbsid) === $("queue").value);
+  if (entry) await openCase(entry.gvbsid, true, entry.package_id);
 }));
+$("queue-view").addEventListener("change", () => action(() => switchQueueView($("queue-view").value)));
+$("previous").addEventListener("click", () => action(async () => {const nav = packageNavigation(); if (nav.previous) await openCase(nav.previous, true, nav.previousPackage);}));
+$("next").addEventListener("click", () => action(async () => {const nav = packageNavigation(); if (nav.next) await openCase(nav.next, true, nav.nextPackage);}));
+$("save").addEventListener("click", () => action(() => saveDecision("Abgeschlossen")));
+$("special").addEventListener("click", () => action(() => saveDecision("Sonderfall")));
 $("export").addEventListener("click", () => action(async () => {if (dirty.size && !window.confirm("Es gibt ungespeicherte Änderungen. Nur den gespeicherten Datenbankstand exportieren?")) return; const value = await api("/api/export", {}); if (!value.cancelled) message("Gesamte Zuteilung exportiert: " + value.path);}));
 
 const divider = $("divider");

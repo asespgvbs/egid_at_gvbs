@@ -101,8 +101,17 @@ class AppTests(SyntheticMemory):
         return response.json
 
     def decision(self, status="Abgeschlossen", assigned=None, version=1, gvbsid="SYNTHETIC-1"):
-        return {"selected": "SYNTHETIC-1", "decisions": [{"gvbsid": gvbsid, "version": version,
-                "status": status, "assigned": assigned if assigned is not None else ["101", "102"], "comment": "Synthetischer Kommentar"}]}
+        case = self.app.session.case("SYNTHETIC-1")
+        decisions = []
+        for record in case["records"]:
+            if record["gvbsid"] == "SYNTHETIC-1":
+                decisions.append({"gvbsid": gvbsid, "version": version, "status": status,
+                                  "assigned": assigned if assigned is not None else ["101", "102"],
+                                  "comment": "Synthetischer Kommentar"})
+            else:
+                decisions.append({"gvbsid": record["gvbsid"], "version": record["version"], "status": status,
+                                  "assigned": record["assigned"], "comment": record["comment"]})
+        return {"selected": "SYNTHETIC-1", "package_id": case["package_id"], "decisions": decisions}
 
     def test_two_stage_gating_and_existing_data_require_explicit_activation(self):
         for path, method in (("/api/queue", "get"), ("/api/import", "post"), ("/api/save", "post"), ("/api/export", "post"), ("/api/geo", "post")):
@@ -114,44 +123,153 @@ class AppTests(SyntheticMemory):
         self.assertEqual(selected["progress"]["total"], 3)
         self.assertEqual(self.client.get("/api/queue").status_code, 400)
         self.post("/api/activate")
-        self.assertEqual(len(self.client.get("/api/queue").json["records"]), 3)
+        self.assertEqual(len(self.client.get("/api/queue").json["records"]), 2)
 
     def test_status_queue_search_and_reopening_completed_cases(self):
         self.select(activate=True)
         response = self.post("/api/save", self.decision())
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["progress"]["completed"], 1)
+        self.assertEqual(response.json["progress"]["completed"], 2)
         self.assertNotIn("SYNTHETIC-1", [row["gvbsid"] for row in self.client.get("/api/queue").json["records"]])
         reopened = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
         self.assertEqual(reopened["records"][0]["assigned"], ["101", "102"])
         self.assertEqual(reopened["records"][0]["status"], "Abgeschlossen")
         self.assertEqual(self.post("/api/save", self.decision("Unklar", ["102"], version=2)).status_code, 200)
-        self.assertEqual(len(self.client.get("/api/queue").json["records"]), 3)
+        self.assertEqual(len(self.client.get("/api/queue").json["records"]), 2)
         self.assertEqual(self.post("/api/save", self.decision("Keine Zuordnung möglich", [], version=3)).status_code, 200)
-        self.assertEqual(self.client.get("/api/state").json["progress"]["impossible"], 1)
+        self.assertEqual(self.client.get("/api/state").json["progress"]["impossible"], 2)
 
-    def test_same_parcel_group_has_independent_statuses(self):
+    def test_special_and_completed_queues_follow_status_transitions_without_egid(self):
+        self.select(activate=True)
+        response = self.post("/api/save", self.decision("Sonderfall", [], version=1))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["progress"]["special"], 2)
+        self.assertEqual(response.json["progress"]["remaining"], 1)
+        self.assertEqual([row["gvbsid"] for row in self.client.get("/api/queue?view=special").json["records"]], ["SYNTHETIC-1"])
+        self.assertNotIn("SYNTHETIC-1", [row["gvbsid"] for row in self.client.get("/api/queue").json["records"]])
+        self.assertEqual(self.client.get("/api/queue?view=completed").json["records"], [])
+        case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
+        self.assertEqual(case["records"][0]["status"], "Sonderfall")
+        response = self.post("/api/save", self.decision("Abgeschlossen", [], version=2))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["progress"]["special"], 0)
+        self.assertEqual(response.json["progress"]["completed"], 2)
+        self.assertEqual(self.client.get("/api/queue?view=special").json["records"], [])
+        self.assertEqual([row["gvbsid"] for row in self.client.get("/api/queue?view=completed").json["records"]], ["SYNTHETIC-1"])
+        response = self.post("/api/save", self.decision("Sonderfall", [], version=3))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get("/api/queue?view=completed").json["records"], [])
+
+    def test_filtered_queues_keep_package_ids_and_legacy_statuses(self):
+        self.select(activate=True)
+        self.database.save([
+            {"gvbsid": "SYNTHETIC-1", "version": 1, "status": "Sonderfall", "assigned": []},
+            {"gvbsid": "SYNTHETIC-2", "version": 1, "status": "Unklar", "assigned": []},
+            {"gvbsid": "SYNTHETIC-3", "version": 1, "status": "Keine Zuordnung möglich", "assigned": []},
+        ], set())
+        special = self.client.get("/api/queue?view=special").json["records"]
+        opened = self.client.get("/api/queue?view=open").json["records"]
+        completed = self.client.get("/api/queue?view=completed").json["records"]
+        self.assertEqual([row["gvbsid"] for row in special], ["SYNTHETIC-1"])
+        self.assertEqual(opened, [])
+        self.assertEqual([row["gvbsid"] for row in completed], ["SYNTHETIC-3"])
+        self.assertEqual(special[0]["record_count"], 2)
+        self.assertEqual(special[0]["package_id"], "egrid:CH-SYNTHETIC-1")
+        self.assertEqual(self.client.get("/api/queue?view=unknown").status_code, 400)
+
+    def test_stale_special_batch_preserves_all_statuses(self):
+        self.select(activate=True)
+        before = self.database.records()
+        payload = {"selected": "SYNTHETIC-1", "decisions": [
+            {"gvbsid": "SYNTHETIC-1", "version": 1, "status": "Sonderfall", "assigned": []},
+            {"gvbsid": "SYNTHETIC-2", "version": 999, "status": "Sonderfall", "assigned": []},
+        ]}
+        self.assertEqual(self.post("/api/save", payload).status_code, 409)
+        self.assertEqual(self.database.records(), before)
+        self.assertEqual(self.database.progress()["special"], 0)
+
+    def test_egrid_actions_cover_all_control_numbers_and_preserve_each_assignment(self):
+        headers = [*HEADERS, "Kontrollnummer", "Gebäudenummer"]
+        rows = [[*row, f"SYNTHETIC-CONTROL-{index}", 0] for index, row in enumerate(VALUES)]
+        self.database.import_rows(headers, rows)
+        second = self.database.records()[1]
+        self.database.save([{"gvbsid": second["gvbsid"], "version": second["version"], "status": "Offen",
+                             "assigned": ["102"], "comment": "Synthetisch erhalten"}], {"102"})
+        self.select(activate=True)
+        queue = self.client.get("/api/queue").json["records"]
+        self.assertEqual(len(queue), 2)
+        self.assertEqual(queue[0]["record_count"], 2)
+        self.assertEqual(queue[0]["control_numbers"], ["SYNTHETIC-CONTROL-0", "SYNTHETIC-CONTROL-1"])
+        version = self.database.records()[0]["version"]
+        response = self.post("/api/save", self.decision("Sonderfall", ["101"], version=version))
+        self.assertEqual(response.status_code, 200)
+        records = self.database.records()
+        self.assertEqual([row["status"] for row in records], ["Sonderfall", "Sonderfall", "Offen"])
+        self.assertEqual([row["assigned"] for row in records], [["101"], ["102"], []])
+        self.assertEqual(records[1]["comment"], "Synthetisch erhalten")
+        self.assertEqual(response.json["package_progress"], {"total": 2, "completed": 0, "special": 1, "remaining": 1})
+        self.assertEqual(len(self.client.get("/api/queue?view=special").json["records"]), 1)
+        response = self.post("/api/save", self.decision("Abgeschlossen", ["101"], version=records[0]["version"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["status"] for row in self.database.records()], ["Abgeschlossen", "Abgeschlossen", "Offen"])
+        self.assertEqual(response.json["package_progress"], {"total": 2, "completed": 1, "special": 0, "remaining": 1})
+
+    def test_partial_or_mixed_status_package_save_is_rejected_without_changes(self):
+        self.select(activate=True)
+        before = self.database.records()
+        partial = self.decision("Sonderfall", [])
+        partial["decisions"].pop()
+        self.assertEqual(self.post("/api/save", partial).status_code, 409)
+        mixed = self.decision("Sonderfall", [])
+        mixed["decisions"][1]["status"] = "Abgeschlossen"
+        self.assertEqual(self.post("/api/save", mixed).status_code, 400)
+        self.assertEqual(self.database.records(), before)
+
+    def test_changed_package_membership_rejects_stale_complete_payload(self):
+        self.select(activate=True)
+        payload = self.decision("Sonderfall", [])
+        self.database.import_rows(HEADERS, [["SYNTHETIC-NEW", *VALUES[0][1:]]])
+        before = self.database.records()
+        self.assertEqual(self.post("/api/save", payload).status_code, 409)
+        self.assertEqual(self.database.records(), before)
+
+    def test_new_member_between_request_validation_and_transaction_prevents_partial_save(self):
+        self.select(activate=True)
+        payload = self.decision("Sonderfall", [])
+        save = self.database.save
+
+        def concurrent_import(decisions, allowed_egids, **kwargs):
+            self.database.import_rows(HEADERS, [["SYNTHETIC-CONCURRENT", *VALUES[0][1:]]])
+            return save(decisions, allowed_egids, **kwargs)
+
+        with patch.object(self.database, "save", side_effect=concurrent_import):
+            response = self.post("/api/save", payload)
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(all(record["status"] == "Offen" for record in self.database.records()))
+
+    def test_same_parcel_group_is_saved_with_one_shared_status(self):
         self.select(activate=True)
         case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
         self.assertEqual([row["gvbsid"] for row in case["records"]], ["SYNTHETIC-1", "SYNTHETIC-2"])
         self.assertEqual(case["records"][0]["purpose"], "Synthetisches Wohnhaus")
         self.assertEqual(case["egids"], ["101", "102"])
         self.assertEqual(self.post("/api/save", self.decision()).status_code, 200)
-        self.assertEqual(self.database.records()[1]["status"], "Offen")
+        self.assertEqual(self.database.records()[1]["status"], "Abgeschlossen")
 
     def test_queue_packages_keep_interleaved_parcel_members_together(self):
         self.database = self.empty_store(self.folder / "synthetic-packages.sqlite")
         self.database.import_rows(HEADERS, [VALUES[0], VALUES[2], VALUES[1]], automatic_egids=set())
         self.select(activate=True)
         queue = self.client.get("/api/queue").json["records"]
-        self.assertEqual([row["gvbsid"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3"])
-        self.assertEqual([row["package_id"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-1", "SYNTHETIC-3"])
-        self.assertEqual([row["package_index"] for row in queue], [0, 0, 1])
+        self.assertEqual([row["gvbsid"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-3"])
+        self.assertEqual([row["package_id"] for row in queue], ["egrid:CH-SYNTHETIC-1", "egrid:CH-SYNTHETIC-2"])
+        self.assertEqual([row["package_index"] for row in queue], [0, 1])
+        self.assertEqual([row["record_count"] for row in queue], [2, 1])
         case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-2"}).json
-        self.assertEqual(case["package_id"], "SYNTHETIC-1")
+        self.assertEqual(case["package_id"], "egrid:CH-SYNTHETIC-1")
         self.assertEqual([row["gvbsid"] for row in case["records"]], ["SYNTHETIC-1", "SYNTHETIC-2"])
 
-    def test_connected_parcels_are_one_package_even_when_bridge_is_finished(self):
+    def test_each_egrid_stays_a_separate_package_when_building_has_several_egrids(self):
         values = [list(row) for row in VALUES]
         values[1][7] = "CH-SYNTHETIC-1, CH-SYNTHETIC-2"
         self.database.import_rows(HEADERS, values)
@@ -159,12 +277,11 @@ class AppTests(SyntheticMemory):
         middle = self.database.records()[1]
         self.database.save([{"gvbsid": "SYNTHETIC-2", "version": middle["version"], "assigned": ["102"]}], {"102"})
         queue = self.client.get("/api/queue").json["records"]
-        self.assertEqual([row["gvbsid"] for row in queue], ["SYNTHETIC-1", "SYNTHETIC-3"])
-        self.assertEqual({row["package_id"] for row in queue}, {"SYNTHETIC-1"})
-        for gvbsid in ("SYNTHETIC-1", "SYNTHETIC-3"):
-            case = self.client.get("/api/case", query_string={"gvbsid": gvbsid}).json
-            self.assertEqual([row["gvbsid"] for row in case["records"]], ["SYNTHETIC-1", "SYNTHETIC-2", "SYNTHETIC-3"])
-            self.assertEqual(case["egrids"], ["CH-SYNTHETIC-1", "CH-SYNTHETIC-2"])
+        self.assertEqual([row["package_id"] for row in queue], ["egrid:CH-SYNTHETIC-1", "egrid:CH-SYNTHETIC-2"])
+        for number, expected in ((1, ["SYNTHETIC-1", "SYNTHETIC-2"]), (2, ["SYNTHETIC-2", "SYNTHETIC-3"])):
+            case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-2", "package_id": f"egrid:CH-SYNTHETIC-{number}"}).json
+            self.assertEqual([row["gvbsid"] for row in case["records"]], expected)
+            self.assertEqual(case["egrids"], [f"CH-SYNTHETIC-{number}"])
 
     def test_missing_egrids_produce_individual_packages(self):
         values = [list(row) for row in VALUES]
@@ -176,6 +293,11 @@ class AppTests(SyntheticMemory):
         self.assertEqual(len({row["package_id"] for row in queue}), 3)
         case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-1"}).json
         self.assertEqual(len(case["records"]), 1)
+        payload = {"selected": case["selected"], "package_id": case["package_id"], "decisions": [
+            {"gvbsid": row["gvbsid"], "version": row["version"], "assigned": [], "status": "Sonderfall"}
+            for row in case["records"]]}
+        self.assertEqual(self.post("/api/save", payload).status_code, 400)
+        self.assertTrue(all(row["status"] == "Offen" for row in self.database.records()))
 
     def test_verified_cached_egrid_updates_packages_but_stale_cache_does_not(self):
         self.select(activate=True)
@@ -183,13 +305,14 @@ class AppTests(SyntheticMemory):
         context = {"parcels": [{"egrid": "CH-SYNTHETIC-1"}], "buildings": [], "sources": {"parcels": {"stale": False}}}
         with patch("egid_match.zuordnung.app.cached_context", return_value=context):
             queue = self.client.get("/api/queue").json["records"]
-            self.assertEqual(len({row["package_id"] for row in queue}), 1)
+            self.assertEqual([row["record_count"] for row in queue], [3, 1])
             case = self.client.get("/api/case", query_string={"gvbsid": "SYNTHETIC-3"}).json
             self.assertEqual(len(case["records"]), 3)
         context["sources"]["parcels"]["stale"] = True
         with patch("egid_match.zuordnung.app.cached_context", return_value=context):
             queue = self.client.get("/api/queue").json["records"]
             self.assertEqual(len({row["package_id"] for row in queue}), 2)
+            self.assertEqual([row["record_count"] for row in queue], [2, 1])
 
     def test_automatic_egid_remains_visible_but_cannot_be_assigned(self):
         self.database.import_rows(HEADERS, VALUES, automatic_egids={"101"})
@@ -241,25 +364,25 @@ class AppTests(SyntheticMemory):
         del payload["decisions"][0]["status"]
         response = self.post("/api/save", payload)
         self.assertEqual(response.status_code, 200)
-        expected = {"total": 3, "completed": 1, "impossible": 0, "remaining": 2}
+        expected = {"total": 3, "completed": 2, "impossible": 0, "special": 0, "remaining": 1}
         self.assertEqual(response.json["progress"], expected)
         self.assertEqual(self.client.get("/api/state").json["progress"], expected)
-        self.assertEqual([row["gvbsid"] for row in self.client.get("/api/queue").json["records"]], ["SYNTHETIC-2", "SYNTHETIC-3"])
+        self.assertEqual([row["gvbsid"] for row in self.client.get("/api/queue").json["records"]], ["SYNTHETIC-3"])
         rows = self.database.records()
         self.assertEqual(rows[0]["status"], "Abgeschlossen")
         self.assertEqual(rows[0]["assigned"], ["101"])
         self.assertEqual(rows[0]["comment"], "Synthetischer Kommentar")
-        self.assertEqual(rows[1]["status"], "Offen")
-        self.assertEqual(rows[1]["version"], 1)
+        self.assertEqual(rows[1]["status"], "Abgeschlossen")
+        self.assertEqual(rows[1]["version"], 2)
 
-    def test_save_empty_decision_without_status_counts_as_no_assignment_possible(self):
+    def test_save_empty_decision_without_status_completes_case(self):
         self.select(activate=True)
         payload = self.decision(assigned=[])
         del payload["decisions"][0]["status"]
         response = self.post("/api/save", payload)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["progress"], {"total": 3, "completed": 0, "impossible": 1, "remaining": 2})
-        self.assertEqual(self.database.records()[0]["status"], "Keine Zuordnung möglich")
+        self.assertEqual(response.json["progress"], {"total": 3, "completed": 2, "impossible": 0, "special": 0, "remaining": 1})
+        self.assertEqual(self.database.records()[0]["status"], "Abgeschlossen")
         self.assertNotIn("SYNTHETIC-1", [row["gvbsid"] for row in self.client.get("/api/queue").json["records"]])
 
     def test_previous_open_assignment_is_completed_by_saving_it_again(self):
@@ -270,12 +393,12 @@ class AppTests(SyntheticMemory):
         del payload["decisions"][0]["status"]
         response = self.post("/api/save", payload)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["progress"]["completed"], 1)
+        self.assertEqual(response.json["progress"]["completed"], 2)
         self.assertEqual(self.database.records()[0]["assigned"], ["101"])
 
     def test_reopened_decision_updates_counts_when_assignments_are_removed_or_added(self):
         self.select(activate=True)
-        for version, assigned, completed, impossible in ((1, ["101"], 1, 0), (2, [], 0, 1), (3, ["102"], 1, 0)):
+        for version, assigned, completed, impossible in ((1, ["101"], 2, 0), (2, [], 2, 0), (3, ["102"], 2, 0)):
             payload = self.decision(assigned=assigned, version=version)
             del payload["decisions"][0]["status"]
             response = self.post("/api/save", payload)
@@ -283,7 +406,7 @@ class AppTests(SyntheticMemory):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json["progress"]["completed"], completed)
                 self.assertEqual(response.json["progress"]["impossible"], impossible)
-                self.assertEqual(response.json["progress"]["remaining"], 2)
+                self.assertEqual(response.json["progress"]["remaining"], 1)
 
     def test_automatic_completion_batch_is_rolled_back_on_conflict(self):
         self.select(activate=True)
@@ -291,7 +414,7 @@ class AppTests(SyntheticMemory):
         del payload["decisions"][0]["status"]
         payload["decisions"].append({"gvbsid": "SYNTHETIC-2", "version": 999, "assigned": []})
         self.assertEqual(self.post("/api/save", payload).status_code, 409)
-        self.assertEqual(self.client.get("/api/state").json["progress"], {"total": 3, "completed": 0, "impossible": 0, "remaining": 3})
+        self.assertEqual(self.client.get("/api/state").json["progress"], {"total": 3, "completed": 0, "impossible": 0, "special": 0, "remaining": 3})
         self.assertTrue(all(row["version"] == 1 and not row["assigned"] for row in self.database.records()))
 
     def test_stale_batch_and_unknown_egid_are_rejected_without_partial_write(self):
@@ -348,7 +471,7 @@ class AppTests(SyntheticMemory):
         self.assertEqual(path, target)
         self.assertEqual(workbook.worksheets[0].max_row, 4)
         self.assertEqual(workbook["Zuordnungen"].max_row, 3)
-        self.assertEqual(workbook["Offene Fälle"].max_row, 3)
+        self.assertEqual(workbook["Offene Fälle"].max_row, 2)
 
     def test_geodata_loading_alone_does_not_save_assignments(self):
         self.select(activate=True)
