@@ -84,6 +84,12 @@ eine separate neue Datenbank angelegt werden.
 
 ## Bearbeiten
 
+Links füllt die Zuordnungsmatrix den verfügbaren Bereich bis zu den
+Aktionsknöpfen aus. Rechts oben stehen EGRID, GVBSID-/EGID-Anzahlen, gemeinsame
+Kategorie und beide Auswahlfelder für Warteliste und EGRID-Paket. Direkt darunter
+liegt die Karte. Auf schmalen Bildschirmen stehen Paketkopf, Matrix und Karte
+untereinander.
+
 Haben alle GVBSIDs eines EGRID-Pakets dieselbe Kategorie, erscheint diese einmal
 unter der EGRID-Überschrift. Die Wiederholungen an den einzelnen GVBSIDs entfallen,
 und der Bearbeitungsbereich übernimmt die gemeinsame Matching-Kategoriefarbe.
@@ -93,7 +99,7 @@ hellgelb, einzelne Gebäude mit Suffixadressen dunkelgelb und manuell zu prüfen
 Suffix-Paare orange. Bereits gespeicherte Fälle verwenden ihre importierte
 `Matching-Kategorie`; fehlt diese Angabe, bleibt die Darstellung neutral.
 
-Die Liste links enthält **einen Eintrag je EGRID-Paket**, mit EGRID,
+Die Paketauswahl rechts oben enthält **einen Eintrag je EGRID-Paket**, mit EGRID,
 Kontrollnummern und Anzahl der importierten Gebäude. Alle importierten Prüffälle
 derselben verlässlich bekannten EGRID werden gemeinsam angezeigt, auch bei
 unterschiedlichen Kontrollnummern und Gebäudenummern. Eine GVBSID mit mehreren

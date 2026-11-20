@@ -56,14 +56,16 @@ function paintCategory(element, category) {
 function renderCategoryTheme() {
   const category = packageCategory(), badge = $("case-category");
   paintCategory($("left-pane"), category || recordCategory(null));
+  paintCategory($("parcel-panel"), category || recordCategory(null));
   badge.textContent = category?.label || "";
   badge.title = category?.name || "";
   badge.hidden = !category;
   const counts = $("case-counts");
+  const gvbsCount = new Set((current?.records || []).map(item => item.gvbsid)).size;
+  const egidCount = new Set(current?.egids || []).size;
   counts.hidden = !current;
-  counts.textContent = current
-    ? `(${new Set(current.records.map(item => item.gvbsid)).size} GVBSID/${new Set(current.egids).size} EGID)`
-    : "";
+  counts.textContent = current ? `(${gvbsCount} GVBSID/${egidCount} EGID)` : "";
+  counts.classList.toggle("is-unbalanced", Boolean(current) && gvbsCount !== egidCount);
 }
 
 function createTopPanel() {

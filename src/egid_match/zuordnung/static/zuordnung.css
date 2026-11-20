@@ -84,3 +84,14 @@ tr.has-category td:first-child{border-left:5px solid var(--category-color);backg
 .package-selectors #queue-filter-bar,.package-selectors #queue-bar{gap:8px;margin:0}
 .package-selectors label{flex:0 0 88px;font-size:12px;color:#526e78}
 .package-selectors select{width:100%;min-width:0;padding:7px 8px}
+#workspace{display:grid;grid-template-columns:minmax(0,var(--left)) 8px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);grid-template-areas:"matrix divider panel" "matrix divider map"}
+.left-pane{grid-area:matrix}
+#divider{grid-area:divider}
+.parcel-panel{grid-area:panel;min-width:0;padding:14px 16px 12px;border-top:6px solid transparent;border-bottom:1px solid var(--border);background:#fafcfd;--category-color:#d9e2e6;--category-tint:#fafcfd}
+.parcel-panel.has-category{border-top-color:var(--category-color);background:var(--category-tint)}
+.parcel-panel .case-heading{margin-bottom:0}
+.map-pane{grid-area:map;min-height:0}
+.map-pane #map{min-height:0}
+.map-details{flex-shrink:0}
+@media(max-width:650px){#workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;grid-template-areas:"panel" "matrix" "map"}.parcel-panel{padding:12px}.map-pane{height:65vh}}
+.case-counts.is-unbalanced{color:#b4232d}

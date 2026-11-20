@@ -72,6 +72,7 @@ function runReviewUiTest(sources) {
   const table = elements.matrix.children[0], header = table.children[0].children[0], identity = table.children[1].children[0].children[0];
   check(elements["case-title"].textContent === "EGRID CH-SYNTHETIC-1", "Das EGRID-Paket in der Fallüberschrift kennzeichnen");
   check(elements["case-counts"].textContent === "(1 GVBSID/2 EGID)" && !elements["case-counts"].hidden, "Paketanzahlen direkt unter der EGRID anzeigen");
+  check(elements["case-counts"].classList.contains("is-unbalanced"), "Ungleiche GVBSID- und EGID-Anzahlen rot kennzeichnen");
   check(identity.children[0].textContent === "SYNTHETIC-1 (GVBSID)", "GVBSID in der Tabellenzeile kennzeichnen");
   check(identity.children[1].textContent === "GVBS-Info:", "GVBS-Info als eigenen Abschnitt anzeigen");
   check(identity.children[2].tagName === "UL" && identity.children[2].children.length === 3, "Adresse, Zweckbestimmung und Gebäudevolumen als Aufzählung anzeigen");
@@ -83,6 +84,7 @@ function runReviewUiTest(sources) {
   check(header.children[1].children[1].textContent === "GWR-Testgasse 9a 0000", "Original-GWR-Adresse unter der EGID anzeigen");
   check(header.children[2].children[1].textContent === "GWR-Adresse nicht verfügbar", "GVBS-Adresse niemals als GWR-Ersatz anzeigen");
   check(elements["left-pane"].style.getPropertyValue("--category-color") === "#FFF2CC", "Bearbeitungsbereich in der Farbe des ausgewählten Falls darstellen");
+  check(elements["parcel-panel"].style.getPropertyValue("--category-color") === "#FFF2CC", "Paketkopf rechts verwendet dieselbe gemeinsame Kategoriefarbe");
   check(!elements["case-category"].hidden && elements["case-category"].textContent.includes("Allgemeine Prüfung"), "Kategorie zusätzlich als Text anzeigen");
   check(!identity.children.some(child => child.className === "row-category-label"), "Einheitliche Kategorie nicht zusätzlich an jeder GVBSID wiederholen");
   ui.renderGeo();
@@ -142,6 +144,7 @@ function runReviewUiTest(sources) {
   ]};
   ui.configure(mixed, map, layers); ui.renderCase();
   check(elements["left-pane"].style.getPropertyValue("--category-color") === "#d9e2e6" && elements["case-category"].hidden, "Bei gemischten Kategorien keine einheitliche Paketkategorie vorgeben");
+  check(!elements["parcel-panel"].classList.contains("has-category"), "Bei gemischten Kategorien auch den rechten Paketkopf neutral darstellen");
   const mixedRows = elements.matrix.children[0].children[1].children;
   check(mixedRows[0].style.getPropertyValue("--category-color") === "#E6C200" && mixedRows[1].style.getPropertyValue("--category-color") === "#F4B183", "Gruppierte Zeilen behalten jeweils ihre eigene Kategoriefarbe");
   check(mixedRows.every(row => row.children[0].children.some(child => child.className === "row-category-label")), "Bei gemischten Kategorien jede GVBSID einzeln beschriften");
@@ -236,12 +239,21 @@ function runReviewUiTest(sources) {
   ui.configure({...value, records: Array.from({length: 4}, (_, index) => ({...value.records[0], gvbsid: `SYNTHETIC-${index + 1}`})),
     egids: ["101", "102", "103"]}, map, layers); ui.renderCase();
   check(elements["case-counts"].textContent === "(4 GVBSID/3 EGID)", "Anzahlen beim Paketwechsel aktualisieren");
+  check(elements["case-counts"].classList.contains("is-unbalanced"), "Auch Verhältnis 4 zu 3 rot kennzeichnen");
   check(!elements["case-category"].hidden && elements.matrix.children[0].children[1].children.every(row =>
     !row.children[0].children.some(child => child.className === "row-category-label")), "Auch bei mehreren Gebäuden eine gemeinsame Kategorie nur einmal oben anzeigen");
+  ui.configure({...value, records: Array.from({length: 4}, (_, index) => ({...value.records[0], gvbsid: `SYNTHETIC-${index + 1}`})),
+    egids: ["101", "102", "103", "104"]}, map, layers); ui.renderCase();
+  check(!elements["case-counts"].classList.contains("is-unbalanced"), "Beim Wechsel zu Verhältnis 4 zu 4 die rote Kennzeichnung entfernen");
+  ui.configure({...value, egids: ["101"]}, map, layers); ui.renderCase();
+  check(!elements["case-counts"].classList.contains("is-unbalanced"), "Verhältnis 1 zu 1 normal darstellen");
+  ui.configure({...value, egids: []}, map, layers); ui.renderCase();
+  check(elements["case-counts"].classList.contains("is-unbalanced"), "Fehlende EGID bei vorhandener GVBSID ebenfalls rot kennzeichnen");
   ui.configure(value, map, layers); ui.renderCase();
   ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, impossible: 0, remaining: 1}});
   check(elements["case-category"].hidden && !elements["left-pane"].classList.contains("has-category"), "Beim Datenbankwechsel die Kategoriefarbe und Beschriftung zurücksetzen");
   check(elements["case-counts"].hidden && elements["case-counts"].textContent === "", "Alte Paketanzahlen beim Datenbankwechsel entfernen");
+  check(!elements["case-counts"].classList.contains("is-unbalanced"), "Beim Datenbankwechsel die rote Kennzeichnung entfernen");
   check(apiCalls === 0, "Der synthetische Test ruft keinen Dienst auf");
   return assertions;
 }
