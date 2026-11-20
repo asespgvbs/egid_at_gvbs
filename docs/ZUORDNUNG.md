@@ -108,8 +108,9 @@ aufsteigend sortiert. Die Volumenmarkierung gilt bei **Alle Verhältnisse**,
 **Nur 1:1** und **ungleich 1:1**.
 
 Bei gleicher Anzahl GVBSIDs und EGIDs im EGRID-Paket erscheint oberhalb der
-Matrix **Grössenzuordnung**, auch bei 2:2 oder 4:4. Der Knopf umrandet die
-Matrixfelder für EGID und GVBSID mit demselben Grössenrang:
+Matrix **Grössenzuordnung**, auch bei 2:2 oder 4:4. Die Grössenvorschläge sind
+standardmässig eingeschaltet und umranden die Matrixfelder für EGID und GVBSID
+mit demselben Grössenrang:
 grösste GWR-Kubatur zur grössten GVBS-Kubatur, zweitgrösste zur zweitgrössten
 usw. Beispielsweise werden GVBS-Kubaturen von 100 und 300 m³ mit GWR-Volumen von
 90 und 310 m³ verbunden. Exakt gleiche Werte sind nicht erforderlich.
@@ -123,14 +124,16 @@ Umrandung; genau 2 bleibt unmarkiert. Für die Schwelle zählt der ungerundete
 Quotient. Der Hinweis beim Darüberfahren nennt beide Volumenwerte.
 Bei 0 m³ GWR ist das Verhältnis nicht bestimmbar.
 
-Ein erneuter Klick blendet Umrandungen und Verhältnisangaben aus. Die Funktion
+Der Knopf blendet Umrandungen und Verhältnisangaben aus oder wieder ein. Die Funktion
 verändert keine Checkboxen, Zuteilungen, Kommentare oder Bearbeitungsstatus und
 speichert nichts. Sie löst keine zusätzlichen Datenabfragen aus. Auch bereits
 automatisch zugeteilte EGIDs können verglichen werden und bleiben dabei gesperrt.
 Fehlt die EGRID oder eine gültige Kubatur, ist der Knopf deaktiviert und nennt
 den Grund. Nachgeladene Volumen aktualisieren die umrandeten Felder; ist die
 Anzahl anschliessend ungleich, entfallen Vorschläge und Knopf. Beim Paketwechsel
-werden die Vorschläge zurückgesetzt.
+werden die Vorschläge wieder standardmässig eingeschaltet. Fehlende Volumen
+werden nach dem Laden automatisch berücksichtigt. Ein manuelles Ausblenden
+bleibt bei weiteren Geodatenaktualisierungen desselben Pakets erhalten.
 
 Haben alle GVBSIDs eines EGRID-Pakets dieselbe Kategorie, erscheint diese einmal
 unter der EGRID-Überschrift. Die Wiederholungen an den einzelnen GVBSIDs entfallen,

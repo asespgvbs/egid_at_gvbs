@@ -7,7 +7,7 @@ const $ = id => document.getElementById(id);
 let state = null, current = null, queue = [], dirty = new Set(), busy = false, generation = 0;
 let queueView = "open";
 let queueRatio = "all";
-let sizeGuidesShown = false;
+let sizeGuidesShown = true;
 const queueLabels = {open: "Offen", special: "Sonderfälle", completed: "Abgeschlossen"};
 const ratioLabels = {all: "Alle Verhältnisse", equal: "Nur 1:1", different: "ungleich 1:1"};
 let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new Map(), selectedEgid = null;
@@ -228,7 +228,7 @@ function applyState(value) {
   }
   if (!value.active) {
     generation++; current = null; dirty.clear();
-    sizeGuidesShown = false;
+    sizeGuidesShown = true;
     queueView = "open"; $("queue-view").value = queueView;
     queueRatio = "all"; $("queue-ratio").value = queueRatio;
     renderCategoryTheme();
@@ -537,14 +537,14 @@ function casePath(gvbsid, packageId = null) {
 async function openCase(gvbsid, check = true, packageId = null) {
   if (check && !canLeave()) { if (current) $("queue").value = current.package_id || current.selected; return; }
   const value = await api(casePath(gvbsid, packageId));
-  sizeGuidesShown = false;
+  sizeGuidesShown = true;
   current = value; dirty.clear(); selectedEgid = null; generation++;
   renderCase(); renderGeo();
   loadGeo().catch(error => message(error.message, true));
 }
 
 async function activate(value) {
-  sizeGuidesShown = false;
+  sizeGuidesShown = true;
   applyState(value); current = null; dirty.clear(); generation++;
   renderCategoryTheme();
   $("case-content").hidden = true; clearMap(); await refreshQueue();
@@ -553,7 +553,7 @@ async function activate(value) {
 }
 
 function showEmptyQueue() {
-  sizeGuidesShown = false;
+  sizeGuidesShown = true;
   current = null; dirty.clear(); generation++; renderCategoryTheme();
   $("case-content").hidden = true; $("empty-note").hidden = false;
   $("case-title").textContent = `${queueLabels[queueView]} · Keine Fälle`;
@@ -744,7 +744,7 @@ async function loadGeo() {
 }
 
 function applyGeoCase(refreshed, geo = refreshed.geo) {
-  if ((refreshed.package_id || refreshed.selected) !== (current.package_id || current.selected)) sizeGuidesShown = false;
+  if ((refreshed.package_id || refreshed.selected) !== (current.package_id || current.selected)) sizeGuidesShown = true;
   const edits = new Map(current.records.filter(record => dirty.has(record.gvbsid)).map(record => [record.gvbsid, record]));
   refreshed.records = refreshed.records.map(record => edits.get(record.gvbsid) || record);
   refreshed.egids = [...new Set([...refreshed.egids, ...[...edits.values()].flatMap(record => record.assigned)])].sort((a,b) => Number(a)-Number(b));

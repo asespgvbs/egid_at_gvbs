@@ -57,7 +57,7 @@ async function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"].replace(/\r\n/g, "\n");
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,configure(value,view,layers,items,filter='open',ratio='all'){current=value;selectedEgid=null;sizeGuidesShown=false;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
@@ -351,9 +351,12 @@ async function runReviewUiTest(sources) {
   const fieldRatio = element => element.children.find(child => child.className === "volume-ratio");
   ui.configure(guideValue, map, layers); ui.renderCase();
   check(!guideButton.hidden && !guideButton.disabled, "Grössenzuordnung bei tatsächlichem 3:3-Paket auch unter Alle Verhältnisse anzeigen");
-  check(!guideTable().classList.contains("has-size-guides") && guideRows().every(row => row.children.every(cell => !fieldRatio(cell))),
-    "Grössenvorschläge und Verhältnisangaben erst nach dem Knopfdruck anzeigen");
+  check(guideTable().classList.contains("has-size-guides") && guideButton.attributes["aria-pressed"] === "true",
+    "Grössenvorschläge und Verhältnisangaben bei gleichem Verhältnis standardmässig ohne Knopfdruck anzeigen");
   const beforeGuidePayload = JSON.stringify(ui.decisionPayload("Abgeschlossen"));
+  guideButton.events.click();
+  check(!guideTable().classList.contains("has-size-guides") && guideRows().every(row => row.children.every(cell => !fieldRatio(cell))),
+    "Erster Knopfdruck blendet die standardmässig aktiven Vorschläge aus");
   guideButton.events.click();
   check(guideTable().classList.contains("has-size-guides") && guideButton.attributes["aria-pressed"] === "true",
     "Knopf aktiviert die Umrandungen mit zugänglichem Zustand");
@@ -398,19 +401,19 @@ async function runReviewUiTest(sources) {
   const tiedGuides = {...value, selected: "1000-2", egids: ["10", "2"],
     records: ["1000-10", "1000-2"].map(gvbsid => ({...value.records[0], gvbsid, raw: {...value.records[0].raw, Kubatur: 100}})),
     geo: {...value.geo, volumes: {"10": 50, "2": 50}}};
-  ui.configure(tiedGuides, map, layers); ui.renderCase(); guideButton.events.click();
+  ui.configure(tiedGuides, map, layers); ui.renderCase();
   check(guideEndpoints() === "1000-2 (GVBSID)=>2,1000-10 (GVBSID)=>10", "Bei gleichen Kubaturen auf beiden Seiten numerisch aufsteigende IDs als stabile Reihenfolge verwenden");
   const nearbyGuides = {...value, selected: "1000-1", egids: ["101", "102"],
     records: [100, 300].map((volume, index) => ({...value.records[0], gvbsid: `1000-${index + 1}`, raw: {...value.records[0].raw, Kubatur: volume}})),
     geo: {...value.geo, volumes: {"101": 90, "102": 310}}};
-  ui.configure(nearbyGuides, map, layers); ui.renderCase(); guideButton.events.click();
+  ui.configure(nearbyGuides, map, layers); ui.renderCase();
   check(guideEndpoints() === "1000-1 (GVBSID)=>101,1000-2 (GVBSID)=>102", "Bestätigtes Beispiel 100 zu 90 und 300 zu 310 auch ohne exakt gleiche Kubaturen verbinden");
   check(fieldRatio(guideRows()[1].children[1]).textContent === "m³ GVBSID/EGID 0.97", "Volumenverhältnisse auf höchstens zwei Nachkommastellen runden");
   for (const [gvbs, gwr, ratio, red] of [[1680, 1000, "1.68", false], [2400, 1200, "2", false],
     [1200, 2400, "0.5", false], [2500, 1000, "2.5", true], [20001, 10000, "2", true], [19999, 10000, "2", false],
     [0, 10, "0", false], [10, 0, "nicht bestimmbar", false], [0, 0, "nicht bestimmbar", false]]) {
     ui.configure({...value, egids: ["101"], records: [{...value.records[0], raw: {...value.records[0].raw, Kubatur: gvbs}}],
-      geo: {...value.geo, volumes: {"101": gwr}}}, map, layers); ui.renderCase(); guideButton.events.click();
+      geo: {...value.geo, volumes: {"101": gwr}}}, map, layers); ui.renderCase();
     const cell = guideRows()[0].children[1], label = fieldRatio(cell);
     check(label.textContent === `m³ GVBSID/EGID ${ratio}`, "Auch einzelne Paare und Nullvolumen mit korrektem GVBS/GWR-Quotienten anzeigen");
     check(label.classList.contains("volume-ratio-high") === red && cell.classList.contains("size-match-high") === red,
@@ -418,7 +421,7 @@ async function runReviewUiTest(sources) {
   }
   const changingRatio = {...value, egids: ["101"], records: [{...value.records[0], raw: {...value.records[0].raw, Kubatur: 500}}],
     geo: {...value.geo, volumes: {"101": 100}}};
-  ui.configure(changingRatio, map, layers); ui.renderCase(); guideButton.events.click();
+  ui.configure(changingRatio, map, layers); ui.renderCase();
   check(fieldRatio(guideRows()[0].children[1]).classList.contains("volume-ratio-high"), "Hohes Verhältnis zunächst rot anzeigen");
   changingRatio.geo.volumes["101"] = 500; ui.renderCase();
   check(fieldRatio(guideRows()[0].children[1]).textContent === "m³ GVBSID/EGID 1" &&
@@ -437,9 +440,26 @@ async function runReviewUiTest(sources) {
     check(!guideTable().classList.contains("has-size-guides") && elements.dirty.hidden,
       "Auch künstlicher Klick erstellt bei unvollständigen Volumen keine Vorschläge oder Änderungen");
   }
+  const awaitingVolume = {...value, package_id: "egrid:CH-SYNTHETIC-1", egids: ["101"],
+    geo: {...value.geo, volumes: {}, buildings: []}};
+  ui.configure(awaitingVolume, map, layers); ui.renderCase();
+  check(guideButton.disabled && !guideTable().classList.contains("has-size-guides"),
+    "Während fehlender GWR-Volumen noch keine Vorschläge anzeigen");
+  const loadedVolume = {...awaitingVolume, geo: {...awaitingVolume.geo, volumes: {"101": 1000}}};
+  ui.applyGeoCase(loadedVolume);
+  check(guideTable().classList.contains("has-size-guides") && !guideButton.disabled &&
+    fieldRatio(guideRows()[0].children[1]).textContent === "m³ GVBSID/EGID 1.25",
+    "Nachgeladene Volumen aktivieren die Vorschläge ohne zusätzlichen Knopfdruck");
+  guideButton.events.click();
+  ui.applyGeoCase({...loadedVolume, geo: {...loadedVolume.geo, volumes: {"101": 500}}});
+  check(!guideTable().classList.contains("has-size-guides") && guideButton.attributes["aria-pressed"] === "false",
+    "Manuelles Ausblenden bleibt nach Geodatenaktualisierungen desselben Pakets erhalten");
+  ui.applyGeoCase({...loadedVolume, selected: "SYNTHETIC-NEXT", package_id: "egrid:CH-SYNTHETIC-2", egrids: ["CH-SYNTHETIC-2"],
+    records: [{...loadedVolume.records[0], gvbsid: "SYNTHETIC-NEXT"}]});
+  check(guideTable().classList.contains("has-size-guides") && guideButton.attributes["aria-pressed"] === "true" && elements.dirty.hidden,
+    "Ein anderes EGRID-Paket erhält wieder standardmässige Vorschläge ohne Zuteilungen zu ändern");
   ui.configure({...guideValue, blocked_egids: ["101"], assignable_egids: ["102", "103"]}, map, layers); ui.renderCase();
   check(!guideButton.disabled, "Gesperrte EGID dürfen bei rein visuellen Grössenvergleichen berücksichtigt werden");
-  guideButton.events.click();
   const lockedGuideHead = guideHeads().find(head => head.children[0].dataset.egid === "101");
   check(lockedGuideHead.classList.contains("egid-locked") &&
     guideRows().some(row => row.children.some(cell => cell.dataset.egid === "101" && cell.classList.contains("size-match"))) &&
@@ -456,8 +476,7 @@ async function runReviewUiTest(sources) {
   ui.configure(dynamicValue, map, layers, [{gvbsid: "SYNTHETIC-1", package_id: dynamicValue.package_id, package_index: 0}], "open", "equal");
   dynamicValue.records[0].comment = "Synthetische ungespeicherte Bearbeitung";
   ui.changed(dynamicValue.records[0]);
-  guideButton.events.click();
-  check(guideTable().classList.contains("has-size-guides"), "Grössenvorschläge vor einer Geodatenaktualisierung einschalten");
+  check(guideTable().classList.contains("has-size-guides"), "Grössenvorschläge vor einer Geodatenaktualisierung standardmässig anzeigen");
   const requests = [];
   syntheticApi = async path => {
     requests.push(path);
