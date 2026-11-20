@@ -107,6 +107,31 @@ und Schweizer Tausendertrennzeichen werden berücksichtigt. Die GVBSIDs bleiben
 aufsteigend sortiert. Die Volumenmarkierung gilt bei **Alle Verhältnisse**,
 **Nur 1:1** und **ungleich 1:1**.
 
+Bei gleicher Anzahl GVBSIDs und EGIDs im EGRID-Paket erscheint oberhalb der
+Matrix **Grössenzuordnung**, auch bei 2:2 oder 4:4. Der Knopf umrandet die
+Matrixfelder für EGID und GVBSID mit demselben Grössenrang:
+grösste GWR-Kubatur zur grössten GVBS-Kubatur, zweitgrösste zur zweitgrössten
+usw. Beispielsweise werden GVBS-Kubaturen von 100 und 300 m³ mit GWR-Volumen von
+90 und 310 m³ verbunden. Exakt gleiche Werte sind nicht erforderlich.
+Bei gleichem Volumen entscheidet die jeweilige ID numerisch aufsteigend.
+
+Die bisherige Zeilen- und Spaltenreihenfolge bleibt erhalten. Direkt im
+umrandeten Feld steht der Quotient **m³ GVBSID/EGID**, beispielsweise **1.68**
+für 1680 m³ GVBS und 1000 m³ GWR. Die Anzeige verwendet höchstens zwei
+Nachkommastellen. Werte **über 2** erscheinen mit roter Schrift und roter
+Umrandung; genau 2 bleibt unmarkiert. Für die Schwelle zählt der ungerundete
+Quotient. Der Hinweis beim Darüberfahren nennt beide Volumenwerte.
+Bei 0 m³ GWR ist das Verhältnis nicht bestimmbar.
+
+Ein erneuter Klick blendet Umrandungen und Verhältnisangaben aus. Die Funktion
+verändert keine Checkboxen, Zuteilungen, Kommentare oder Bearbeitungsstatus und
+speichert nichts. Sie löst keine zusätzlichen Datenabfragen aus. Auch bereits
+automatisch zugeteilte EGIDs können verglichen werden und bleiben dabei gesperrt.
+Fehlt die EGRID oder eine gültige Kubatur, ist der Knopf deaktiviert und nennt
+den Grund. Nachgeladene Volumen aktualisieren die umrandeten Felder; ist die
+Anzahl anschliessend ungleich, entfallen Vorschläge und Knopf. Beim Paketwechsel
+werden die Vorschläge zurückgesetzt.
+
 Haben alle GVBSIDs eines EGRID-Pakets dieselbe Kategorie, erscheint diese einmal
 unter der EGRID-Überschrift. Die Wiederholungen an den einzelnen GVBSIDs entfallen,
 und der Bearbeitungsbereich übernimmt die gemeinsame Matching-Kategoriefarbe.

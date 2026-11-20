@@ -7,6 +7,7 @@ const $ = id => document.getElementById(id);
 let state = null, current = null, queue = [], dirty = new Set(), busy = false, generation = 0;
 let queueView = "open";
 let queueRatio = "all";
+let sizeGuidesShown = false;
 const queueLabels = {open: "Offen", special: "Sonderfälle", completed: "Abgeschlossen"};
 const ratioLabels = {all: "Alle Verhältnisse", equal: "Nur 1:1", different: "ungleich 1:1"};
 let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new Map(), selectedEgid = null;
@@ -195,6 +196,15 @@ function gates() {
   for (const input of $("case-content").querySelectorAll("input,select,textarea,button[data-remove-blocked]")) {
     input.disabled = busy || !active || !current?.automatic_assignments_loaded || (input.type === "checkbox" && !canAssignEgid(input.dataset.egid));
   }
+  const sizePlan = sizeGuidePlan();
+  $("size-assignment").hidden = !sizePlan.visible;
+  $("size-assignment").disabled = busy || !active || Boolean(sizePlan.reason);
+  $("size-assignment").setAttribute("aria-pressed", String(sizeGuidesShown && sizePlan.visible && !sizePlan.reason));
+  $("size-assignment").title = sizePlan.reason || "Grössenvorschläge ein- oder ausblenden; Checkboxen bleiben unverändert.";
+  $("size-assignment-note").hidden = !sizePlan.visible;
+  $("size-assignment-note").textContent = sizePlan.reason || (sizeGuidesShown
+    ? "Umrandungen nach Grössenrang · Checkboxen bleiben unverändert."
+    : "Grössenvorschlag nach Kubatur · Keine Zuteilung.");
   $("dirty").hidden = !dirty.size;
 }
 
@@ -218,6 +228,7 @@ function applyState(value) {
   }
   if (!value.active) {
     generation++; current = null; dirty.clear();
+    sizeGuidesShown = false;
     queueView = "open"; $("queue-view").value = queueView;
     queueRatio = "all"; $("queue-ratio").value = queueRatio;
     renderCategoryTheme();
@@ -289,6 +300,48 @@ function gvbsVolume(record) {
   if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
   const volume = Number(text);
   return Number.isFinite(volume) && volume >= 0 ? volume : null;
+}
+
+function gvbsGwrRatio(record, egid) {
+  const gvbs = gvbsVolume(record), gwr = volumeRank(egid);
+  if (gvbs === null || gwr <= 0) return null;
+  const ratio = gvbs / gwr;
+  return Number.isFinite(ratio) ? ratio : null;
+}
+
+function volumeRatioLabel(record, egid) {
+  const gvbs = gvbsVolume(record), gwr = volumeRank(egid), ratio = gvbsGwrRatio(record, egid);
+  if (gvbs === null || gwr < 0) return null;
+  const format = value => new Intl.NumberFormat("de-CH", {maximumFractionDigits: 2}).format(value);
+  const label = node("span", `m³ GVBSID/EGID ${ratio === null ? "nicht bestimmbar" : format(ratio)}`, "volume-ratio");
+  label.classList.toggle("volume-ratio-high", ratio !== null && ratio > 2);
+  label.title = `${record.gvbsid} / EGID ${egid}: ${gvbs} m³/${gwr} m³`;
+  return label;
+}
+
+function sizeGuidePlan() {
+  const records = current?.records || [], egids = [...new Set(current?.egids || [])];
+  const visible = records.length > 0 && new Set(records.map(record => record.gvbsid)).size === egids.length;
+  if (!visible) return {visible: false, reason: "", pairs: []};
+  if (current.egrids.length !== 1) return {visible, reason: "Für die Grössenvorschläge muss die EGRID bekannt sein.", pairs: []};
+  if (records.length !== egids.length) return {visible, reason: "Die GVBSIDs müssen im Paket eindeutig sein.", pairs: []};
+  if (records.some(record => gvbsVolume(record) === null)) {
+    return {visible, reason: "Für alle GVBSIDs wird eine gültige Kubatur benötigt.", pairs: []};
+  }
+  if (egids.some(egid => volumeRank(egid) < 0)) {
+    return {visible, reason: "Für alle EGIDs wird ein gültiges GWR-Volumen benötigt.", pairs: []};
+  }
+  const rankedRecords = [...records].sort((first, second) =>
+    gvbsVolume(second) - gvbsVolume(first) || numericIds.compare(first.gvbsid, second.gvbsid));
+  egids.sort(compareEgidVolumes);
+  return {visible, reason: "", pairs: rankedRecords.map((record, index) => ({record, egid: egids[index]}))};
+}
+
+function toggleSizeGuides() {
+  const plan = sizeGuidePlan();
+  if (busy || !state?.active || !plan.visible || plan.reason) return;
+  sizeGuidesShown = !sizeGuidesShown;
+  renderCase();
 }
 
 function createRecordInfo() {
@@ -367,6 +420,9 @@ function renderCase() {
   renderCategoryTheme();
   const egids = [...current.egids].sort(compareEgidVolumes);
   const records = [...current.records].sort((first, second) => numericIds.compare(first.gvbsid, second.gvbsid));
+  const guidePlan = sizeGuidesShown ? sizeGuidePlan() : null;
+  const guidePairs = guidePlan?.pairs || [];
+  const guideByRow = new Map(guidePairs.map(pair => [pair.record.gvbsid, pair]));
   const commonCategory = packageCategory();
   $("case-content").hidden = false; $("empty-note").hidden = true;
   $("case-title").textContent = current.egrids.length ? `EGRID ${current.egrids.join(", ")}` : `${current.selected} (ohne EGRID)`;
@@ -383,6 +439,7 @@ function renderCase() {
     : !current.egrids.length ? "Die EGRID ist noch nicht verlässlich bekannt. Paketaktionen sind erst nach Klärung der EGRID möglich."
     : "Graue EGID sind bereits automatisch zugeteilt und können nicht erneut vergeben werden.";
   const table = node("table"), head = node("thead"), headings = node("tr");
+  table.classList.toggle("has-size-guides", guidePairs.length > 0);
   headings.append(node("th", "GVBS"));
   for (const egid of egids) {
     const volumeText = ReviewEgidPoints.volumeText(gwrVolume(egid));
@@ -416,6 +473,7 @@ function renderCase() {
       node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`),
       volumeItem);
     identity.append(trigger, node("strong", "GVBS-Info:", "gvbs-info-title"), info);
+    const rowGuide = guideByRow.get(record.gvbsid);
     if (!commonCategory) {
       const categoryLabel = node("span", category.label, "row-category-label");
       categoryLabel.title = category.name;
@@ -439,6 +497,11 @@ function renderCase() {
     for (const egid of egids) {
       const td = node("td"), checkbox = document.createElement("input");
       td.classList.toggle("egid-locked", isBlockedEgid(egid));
+      const isSizeMatch = rowGuide?.egid === egid;
+      const ratio = isSizeMatch ? gvbsGwrRatio(record, egid) : null;
+      td.classList.toggle("size-match", isSizeMatch);
+      td.classList.toggle("size-match-high", ratio !== null && ratio > 2);
+      if (isSizeMatch) td.title = `Grössenvorschlag: ${record.gvbsid} / EGID ${egid}. Keine automatische Zuteilung.`;
       td.dataset.egid = egid; checkbox.type = "checkbox"; checkbox.checked = record.assigned.includes(egid);
       checkbox.dataset.egid = egid;
       checkbox.setAttribute("aria-label", `${record.gvbsid} der EGID ${egid} zuordnen`);
@@ -448,7 +511,9 @@ function renderCase() {
         if (checkbox.checked) values.add(egid); else values.delete(egid);
         record.assigned = [...values]; changed(record);
       });
-      td.append(checkbox); tr.append(td);
+      td.append(checkbox);
+      if (isSizeMatch) td.append(volumeRatioLabel(record, egid));
+      tr.append(td);
     }
     body.append(tr);
     const editor = node("details", undefined, "record-editor"), summary = node("summary", "Kommentar");
@@ -472,12 +537,14 @@ function casePath(gvbsid, packageId = null) {
 async function openCase(gvbsid, check = true, packageId = null) {
   if (check && !canLeave()) { if (current) $("queue").value = current.package_id || current.selected; return; }
   const value = await api(casePath(gvbsid, packageId));
+  sizeGuidesShown = false;
   current = value; dirty.clear(); selectedEgid = null; generation++;
   renderCase(); renderGeo();
   loadGeo().catch(error => message(error.message, true));
 }
 
 async function activate(value) {
+  sizeGuidesShown = false;
   applyState(value); current = null; dirty.clear(); generation++;
   renderCategoryTheme();
   $("case-content").hidden = true; clearMap(); await refreshQueue();
@@ -486,6 +553,7 @@ async function activate(value) {
 }
 
 function showEmptyQueue() {
+  sizeGuidesShown = false;
   current = null; dirty.clear(); generation++; renderCategoryTheme();
   $("case-content").hidden = true; $("empty-note").hidden = false;
   $("case-title").textContent = `${queueLabels[queueView]} · Keine Fälle`;
@@ -676,6 +744,7 @@ async function loadGeo() {
 }
 
 function applyGeoCase(refreshed, geo = refreshed.geo) {
+  if ((refreshed.package_id || refreshed.selected) !== (current.package_id || current.selected)) sizeGuidesShown = false;
   const edits = new Map(current.records.filter(record => dirty.has(record.gvbsid)).map(record => [record.gvbsid, record]));
   refreshed.records = refreshed.records.map(record => edits.get(record.gvbsid) || record);
   refreshed.egids = [...new Set([...refreshed.egids, ...[...edits.values()].flatMap(record => record.assigned)])].sort((a,b) => Number(a)-Number(b));
@@ -693,6 +762,7 @@ $("queue").addEventListener("change", () => action(async () => {
 }));
 $("queue-view").addEventListener("change", () => action(() => switchQueueView($("queue-view").value)));
 $("queue-ratio").addEventListener("change", () => action(() => switchQueueRatio($("queue-ratio").value)));
+$("size-assignment").addEventListener("click", toggleSizeGuides);
 $("previous").addEventListener("click", () => action(async () => {const nav = packageNavigation(); if (nav.previous) await openCase(nav.previous, true, nav.previousPackage);}));
 $("next").addEventListener("click", () => action(async () => {const nav = packageNavigation(); if (nav.next) await openCase(nav.next, true, nav.nextPackage);}));
 $("save").addEventListener("click", () => action(() => saveDecision("Abgeschlossen")));

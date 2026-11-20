@@ -96,3 +96,10 @@ tr.has-category td:first-child{border-left:5px solid var(--category-color);backg
 @media(max-width:650px){#workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;grid-template-areas:"panel" "matrix" "map"}.parcel-panel{padding:12px}.map-pane{height:65vh}}
 .case-counts.is-unbalanced{color:#b4232d}
 .matrix-wrap .volume-order-warning{color:#b4232d;font-weight:700}
+#size-assignment-note{color:#526e78;font-size:12px;line-height:1.4}
+.matrix-wrap .volume-ratio{display:block;margin-top:4px;font-size:11px;font-weight:600;line-height:1.4;white-space:normal;color:#126e66}
+.matrix-wrap .has-size-guides td[data-egid]{text-align:center}
+.matrix-wrap .has-size-guides td input[type=checkbox]{margin:0;vertical-align:middle}
+.matrix-wrap td.size-match{box-shadow:inset 0 0 0 2px #126e66}
+.matrix-wrap td.size-match-high{box-shadow:inset 0 0 0 2px #b4232d}
+.matrix-wrap .volume-ratio-high{color:#b4232d}
