@@ -229,6 +229,7 @@ function applyState(value) {
   if (!value.active) {
     generation++; current = null; dirty.clear();
     sizeGuidesShown = true;
+    packageNotice.reset();
     queueView = "open"; $("queue-view").value = queueView;
     queueRatio = "all"; $("queue-ratio").value = queueRatio;
     renderCategoryTheme();
@@ -300,6 +301,116 @@ function gvbsVolume(record) {
   if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
   const volume = Number(text);
   return Number.isFinite(volume) && volume >= 0 ? volume : null;
+}
+
+function volumeOrderMismatch(records) {
+  let previous = null;
+  for (const record of records) {
+    const volume = gvbsVolume(record);
+    if (volume === null) continue;
+    if (previous !== null && volume > previous) return true;
+    previous = volume;
+  }
+  return false;
+}
+
+function controlNumber(record) {
+  const id = String(record.gvbsid || ""), separator = id.lastIndexOf("-");
+  const value = String(record.raw?.Kontrollnummer ?? "").trim() || (separator > 0 ? id.slice(0, separator).trim() : "");
+  return /^\d+$/.test(value) ? value.replace(/^0+(?=\d)/, "") : value;
+}
+
+function differentMainAddresses(entries) {
+  const owners = new Set(), addresses = new Map();
+  const normal = value => String(value ?? "").normalize("NFKC").toLocaleLowerCase("de-CH").replace(/ß/g, "ss").replace(/\s+/g, " ").trim();
+  for (const {id, address} of entries) {
+    if (!Array.isArray(address)) continue;
+    const street = normal(address[0]), number = normal(address[1]).replace(/\s+/g, ""), postal = normal(address[2]);
+    if (!street || !number) continue;
+    // Gleiche Hauptnummer mit Buchstaben- oder .Zahl-Suffix ist dieselbe Hauptadresse.
+    const match = number.match(/^(\d+)(?:[a-z]+|\.\d+)?$/);
+    const mainNumber = match ? match[1].replace(/^0+(?=\d)/, "") : number;
+    const key = JSON.stringify([street, mainNumber]);
+    if (!addresses.has(key)) addresses.set(key, new Set());
+    if (postal) addresses.get(key).add(postal);
+    owners.add(id);
+  }
+  return owners.size > 1 && (addresses.size > 1 || [...addresses.values()].some(postals => postals.size > 1));
+}
+
+function differentEgidAddresses() {
+  const geo = current?.geo;
+  if (!geo || Object.values(geo.sources || {}).some(source => source.stale) || geo.gwr_address_status?.code === "unreachable") return false;
+  const visible = new Set(current.egids), entries = [];
+  for (const building of geo.buildings || []) {
+    if (!visible.has(building.egid) || (building.gstat && building.gstat !== "1004")) continue;
+    const grids = [building.egrid, ...(building.egrids || [])].filter(Boolean);
+    if (grids.length && current.egrids.length && !grids.some(grid => current.egrids.includes(grid))) continue;
+    for (const address of building.addresses || [building.address || []]) {
+      entries.push({id: building.egid, address});
+    }
+  }
+  return differentMainAddresses(entries);
+}
+
+function gvbsAddress(record) {
+  const raw = record.raw || {};
+  const text = String(record.address || raw.Suchadresse || raw["GVBS-Adresse"] || "").replace(/\s+/g, " ").trim();
+  const match = text.match(/^(.+?)\s+(\d+(?:\s*[a-z]+|\.\d+|\s*[/-]\s*\d+)?)(?:\s*,\s*(\d{4})(?:\s+.*)?|\s+(\d{4})(?:\s+.*)?)?$/i);
+  if (match) return [match[1], match[2], match[3] || match[4] || ""];
+  const street = String(raw.Strasse ?? raw.Strassennamen ?? "").trim();
+  const number = String(raw.Hausnummer ?? raw["Nr."] ?? "").trim();
+  if (!street || !number) return null;
+  return [street, number + String(raw["Hausnummer Zusatz"] ?? "").trim(), raw.Postleitzahl ?? raw.PLZ ?? ""];
+}
+
+function differentGvbsAddresses(records) {
+  return differentMainAddresses(records.map(record => ({id: record.gvbsid, address: gvbsAddress(record)})));
+}
+
+function packageWarnings(records) {
+  const warnings = [];
+  if (volumeOrderMismatch(records)) warnings.push({id: "volume", text: "INFO: Die GVBSID-Nummerierung stimmt nicht mit der Sortierung der Kubatur überein."});
+  if (new Set(records.map(controlNumber).filter(Boolean)).size > 1) {
+    warnings.push({id: "controls", text: "ACHTUNG: Mehrere Kontrollnummern auf der Parzelle."});
+  }
+  if (differentEgidAddresses()) warnings.push({id: "addresses", text: "INFO: Die EGIDs auf der Parzelle haben unterschiedliche Hauptadressen."});
+  if (differentGvbsAddresses(records)) warnings.push({id: "gvbs_addresses", text: "INFO: Die GVBSIDs auf der Parzelle haben unterschiedliche Hauptadressen."});
+  return warnings;
+}
+
+function createPackageNotice() {
+  const dialog = $("package-notice"), list = $("package-notice-list");
+  const acknowledged = new Set();
+  let pending = [];
+  $("package-notice-close").addEventListener("click", () => {
+    for (const warning of pending) acknowledged.add(warning.id);
+    pending = [];
+    dialog.close();
+  });
+  dialog.addEventListener("cancel", event => event.preventDefault());
+  return {
+    reset() {
+      pending = []; acknowledged.clear(); list.replaceChildren();
+      if (dialog.open) dialog.close();
+    },
+    update(warnings) {
+      if (!warnings.length) {
+        pending = [];
+        if (dialog.open) dialog.close();
+        return;
+      }
+      if (!dialog.open && warnings.every(warning => acknowledged.has(warning.id))) return;
+      pending = warnings;
+      $("package-notice-title").textContent = current.egrids.length ? `Hinweise zur Parzelle ${current.egrids.join(", ")}` : "Hinweise zum Paket";
+      list.replaceChildren(...warnings.map(warning => {
+        const item = node("li", warning.text, warning.id === "controls" ? "package-warning" : "package-info");
+        item.dataset.warning = warning.id;
+        return item;
+      }));
+      if (!dialog.open) dialog.showModal();
+    },
+  };
 }
 
 function gvbsGwrRatio(record, egid) {
@@ -414,12 +525,15 @@ function createRecordInfo() {
 }
 
 const recordInfo = createRecordInfo();
+const packageNotice = createPackageNotice();
 
 function renderCase() {
   recordInfo.hide();
   renderCategoryTheme();
   const egids = [...current.egids].sort(compareEgidVolumes);
   const records = [...current.records].sort((first, second) => numericIds.compare(first.gvbsid, second.gvbsid));
+  const warnings = packageWarnings(records);
+  const volumeOutOfOrder = warnings.some(warning => warning.id === "volume");
   const guidePlan = sizeGuidesShown ? sizeGuidePlan() : null;
   const guidePairs = guidePlan?.pairs || [];
   const guideByRow = new Map(guidePairs.map(pair => [pair.record.gvbsid, pair]));
@@ -454,7 +568,6 @@ function renderCase() {
   }
   head.append(headings); table.append(head);
   const body = node("tbody");
-  let previousVolume = null;
   for (const record of records) {
     const tr = node("tr"); if (["Abgeschlossen", "Keine Zuordnung möglich"].includes(record.status)) tr.className = "row-finished";
     const category = recordCategory(record);
@@ -463,12 +576,9 @@ function renderCase() {
     trigger.type = "button"; recordInfo.attach(trigger, record);
     const info = node("ul", undefined, "gvbs-info-list");
     const volume = String(record.raw?.Kubatur ?? "").replace(/\s+/g, " ").trim();
-    const numericVolume = gvbsVolume(record);
-    const volumeOutOfOrder = numericVolume !== null && previousVolume !== null && numericVolume > previousVolume;
     const volumeItem = node("li", `Gebäudevolumen: ${volume ? volume + " m³" : "Nicht angegeben"}`);
     volumeItem.classList.toggle("volume-order-warning", volumeOutOfOrder);
-    if (volumeOutOfOrder) volumeItem.title = `Kubatur grösser als die vorhergehende gültige Kubatur (${previousVolume} m³).`;
-    if (numericVolume !== null) previousVolume = numericVolume;
+    if (volumeOutOfOrder) volumeItem.title = "Die GVBSID-Nummerierung stimmt nicht mit der Sortierung der Kubatur überein.";
     info.append(node("li", `Adresse: ${String(record.address || "–").replace(/\s+/g, " ").trim()}`),
       node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`),
       volumeItem);
@@ -528,6 +638,7 @@ function renderCase() {
   if (!current.egids.length) $("matrix").append(node("p", "Keine verlässlich verfügbaren EGID. Geodatenquelle und Kandidaten prüfen.", "hint"));
   if (selectedEgid) selectEgid(selectedEgid);
   gates();
+  if (state?.active) packageNotice.update(warnings);
 }
 
 function casePath(gvbsid, packageId = null) {
@@ -537,6 +648,7 @@ function casePath(gvbsid, packageId = null) {
 async function openCase(gvbsid, check = true, packageId = null) {
   if (check && !canLeave()) { if (current) $("queue").value = current.package_id || current.selected; return; }
   const value = await api(casePath(gvbsid, packageId));
+  packageNotice.reset();
   sizeGuidesShown = true;
   current = value; dirty.clear(); selectedEgid = null; generation++;
   renderCase(); renderGeo();
@@ -544,6 +656,7 @@ async function openCase(gvbsid, check = true, packageId = null) {
 }
 
 async function activate(value) {
+  packageNotice.reset();
   sizeGuidesShown = true;
   applyState(value); current = null; dirty.clear(); generation++;
   renderCategoryTheme();
@@ -553,6 +666,7 @@ async function activate(value) {
 }
 
 function showEmptyQueue() {
+  packageNotice.reset();
   sizeGuidesShown = true;
   current = null; dirty.clear(); generation++; renderCategoryTheme();
   $("case-content").hidden = true; $("empty-note").hidden = false;
@@ -744,7 +858,10 @@ async function loadGeo() {
 }
 
 function applyGeoCase(refreshed, geo = refreshed.geo) {
-  if ((refreshed.package_id || refreshed.selected) !== (current.package_id || current.selected)) sizeGuidesShown = true;
+  if ((refreshed.package_id || refreshed.selected) !== (current.package_id || current.selected)) {
+    sizeGuidesShown = true;
+    packageNotice.reset();
+  }
   const edits = new Map(current.records.filter(record => dirty.has(record.gvbsid)).map(record => [record.gvbsid, record]));
   refreshed.records = refreshed.records.map(record => edits.get(record.gvbsid) || record);
   refreshed.egids = [...new Set([...refreshed.egids, ...[...edits.values()].flatMap(record => record.assigned)])].sort((a,b) => Number(a)-Number(b));

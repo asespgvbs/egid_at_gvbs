@@ -101,11 +101,40 @@ Spaltenreihenfolge. Bestehende Zuteilungen und Kommentare bleiben dabei erhalten
 Bei allen Verhältnisfiltern prüft die Matrix auch die GVBS-Kubaturen in der
 angezeigten, numerisch aufsteigenden GVBSID-Reihenfolge.
 Ist eine Kubatur grösser als die vorhergehende gültige Kubatur im EGRID-Paket,
-erscheint ihre Gebäudevolumenangabe rot und fett. Gleiche Werte sind zulässig;
+erscheinen **alle Gebäudevolumenangaben des Pakets rot und fett**. Gleiche Werte sind zulässig;
 fehlende oder ungültige Werte werden beim Vergleich übersprungen. Dezimalkomma
 und Schweizer Tausendertrennzeichen werden berücksichtigt. Die GVBSIDs bleiben
 aufsteigend sortiert. Die Volumenmarkierung gilt bei **Alle Verhältnisse**,
 **Nur 1:1** und **ungleich 1:1**.
+
+Ein gemeinsames Infofenster zeigt die jeweils zutreffenden Hinweise:
+
+- **INFO: Die GVBSID-Nummerierung stimmt nicht mit der Sortierung der Kubatur überein.**
+- **ACHTUNG: Mehrere Kontrollnummern auf der Parzelle.**
+- **INFO: Die EGIDs auf der Parzelle haben unterschiedliche Hauptadressen.**
+- **INFO: Die GVBSIDs auf der Parzelle haben unterschiedliche Hauptadressen.**
+
+Das Fenster muss über **Verstanden** geschlossen werden; Escape und ein Klick
+ausserhalb schliessen es nicht. Bestätigte Hinweise erscheinen beim Neuzeichnen
+desselben geöffneten Pakets nicht erneut. Kommt durch nachgeladene Geodaten ein
+neuer Hinweis hinzu, öffnet sich dasselbe Fenster mit den aktuellen Hinweisen.
+Beim erneuten Öffnen eines Pakets werden die Hinweise wieder angezeigt.
+
+Die Kontrollnummer kommt aus der Importspalte `Kontrollnummer`, ersatzweise aus
+dem Teil der GVBSID vor der letzten Trennung zur Gebäudenummer. Für den
+Adressvergleich zählen bekannte GWR-Adressen der im Paket angezeigten EGIDs.
+Unterschiedliche Strassen oder Hauptnummern lösen den Hinweis aus, etwa
+`Singstrasse 2` und `Singstrasse 4`. Reine Suffixunterschiede derselben
+Hauptadresse, etwa `Singstrasse 2`, `Singstrasse 2.1` und `Singstrasse 2a`,
+bleiben ohne Hinweis. Fehlende Adressen, veraltete Geodaten und Adressen anderer
+EGRID-Pakete werden nicht als Beleg für unterschiedliche Hauptadressen verwendet.
+Für GVBSIDs werden die angezeigten Suchadressen verwendet, ersatzweise die
+importierten Spalten `Strasse`, `Hausnummer`, `Hausnummer Zusatz` und
+`Postleitzahl` einschliesslich ihrer Spaltenaliasnamen. Dieselben Regeln zum
+Ignorieren reiner Hausnummernsuffixe gelten auch für GVBSIDs. Fehlende oder nicht
+eindeutig zerlegbare Adressen lösen keinen Unterschiedshinweis aus.
+Die Prüfung selbst löst keine zusätzlichen Datenabfragen aus und verändert
+weder Checkboxen noch gespeicherte Zuteilungen.
 
 Bei gleicher Anzahl GVBSIDs und EGIDs im EGRID-Paket erscheint oberhalb der
 Matrix **Grössenzuordnung**, auch bei 2:2 oder 4:4. Die Grössenvorschläge sind

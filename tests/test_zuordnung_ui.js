@@ -7,6 +7,7 @@ async function runReviewUiTest(sources) {
   class Element {
     constructor(tag = "div") {
       this.tagName = tag.toUpperCase(); this.children = []; this.dataset = {}; this.attributes = {}; this.events = {}; this._text = "";
+      this.open = false; this.showCount = 0;
       const styles = new Map();
       this.style = {setProperty(name, value) {styles.set(name, value);}, getPropertyValue(name) {return styles.get(name) || "";}};
       const classes = new Set();
@@ -19,6 +20,8 @@ async function runReviewUiTest(sources) {
     setAttribute(name, value) {this.attributes[name] = String(value);}
     removeAttribute(name) {delete this.attributes[name];}
     addEventListener(name, callback) {this.events[name] = callback;}
+    showModal() {if (this.open) throw new Error("Synthetischer Dialog ist bereits geöffnet"); this.open = true; this.showCount++;}
+    close() {this.open = false;}
     contains(target) {return this === target || this.children.some(child => child.contains(target));}
     querySelectorAll(selector) {
       const matches = child => selector === "[data-egid]" ? child.dataset.egid !== undefined : ["INPUT", "SELECT", "TEXTAREA"].includes(child.tagName) || child.dataset.removeBlocked !== undefined;
@@ -57,7 +60,7 @@ async function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"].replace(/\r\n/g, "\n");
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){packageNotice.reset();current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:1}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
@@ -306,18 +309,18 @@ async function runReviewUiTest(sources) {
   const volumeItems = () => elements.matrix.children[0].children[1].children.map(row => row.children[0].children[2].children[2]);
   const volumeWarnings = () => volumeItems().map(item => item.classList.contains("volume-order-warning"));
   ui.configure(volumeCase, map, layers, undefined, "open", "equal"); ui.renderCase();
-  check(volumeWarnings().join() === "false,false,true,false", "Die Kubatur markieren, die gegenüber dem Vorgänger ansteigt");
+  check(volumeWarnings().every(Boolean), "Bei falscher Reihenfolge alle GVBS-Kubaturen des Pakets markieren");
   check(elements.matrix.children[0].children[1].children.map(row => row.children[0].children[0].textContent).join() ===
     "1234-1 (GVBSID),1234-2 (GVBSID),1234-4 (GVBSID),1234-10 (GVBSID)", "Volumenwarnung verändert die numerisch aufsteigende GVBSID-Reihenfolge nicht");
-  check(volumeItems()[2].textContent === "Gebäudevolumen: 150 m³" && volumeItems()[2].title.includes("100 m³"),
-    "Warnung an der GVBS-Kubatur anzeigen und den Vergleichswert im Hinweis nennen");
+  check(volumeItems()[2].textContent === "Gebäudevolumen: 150 m³" && volumeItems().every(item => item.title.includes("GVBSID-Nummerierung")),
+    "Alle Kubaturen mit dem Hinweis auf die falsche Reihenfolge kennzeichnen");
   check(!elements.matrix.children[0].children[1].children[2].children[0].classList.contains("volume-order-warning"),
     "Nur die Volumenangabe und nicht die gesamte GVBSID rot markieren");
   check(JSON.stringify(volumeCase.records) === beforeVolumeWarning && elements.dirty.hidden,
     "Volumenprüfung verändert weder Zuteilungen noch Kommentare und erzeugt keine ungespeicherten Änderungen");
   for (const ratio of ["all", "different"]) {
     ui.configure(volumeCase, map, layers, undefined, "open", ratio); ui.renderCase();
-    check(volumeWarnings().join() === "false,false,true,false", "Volumenwarnung auch bei allen Verhältnissen und ungleich 1:1 anzeigen");
+    check(volumeWarnings().every(Boolean), "Alle Kubaturen auch bei allen Verhältnissen und ungleich 1:1 markieren");
   }
   function checkVolumeSequence(volumes, expected, message) {
     const records = volumes.map((volume, index) => ({...value.records[0], gvbsid: `1000-${index + 1}`,
@@ -328,14 +331,156 @@ async function runReviewUiTest(sources) {
   }
   checkVolumeSequence([300, 200, 100], [false, false, false], "Bereits absteigende GVBS-Kubaturen nicht markieren");
   checkVolumeSequence([300, 300, 100], [false, false, false], "Gleiche aufeinanderfolgende Kubaturen sind zulässig");
-  checkVolumeSequence([0, 1, 1, 2], [false, true, false, true], "Null als gültiges Volumen behandeln und jeden lokalen Anstieg markieren");
-  checkVolumeSequence(["1'000,5", "1\u202f000,5", "1’000,6", "999,9"], [false, false, true, false],
+  checkVolumeSequence([0, 1, 1, 2], [true, true, true, true], "Null als gültiges Volumen behandeln und bei einem Anstieg das ganze Paket markieren");
+  checkVolumeSequence(["1'000,5", "1\u202f000,5", "1’000,6", "999,9"], [true, true, true, true],
     "Dezimalkomma, geschützte Leerzeichen und Schweizer Tausendertrennzeichen numerisch vergleichen");
-  checkVolumeSequence(["100", "20", "3", "10"], [false, false, false, true], "Kubaturen als Zahlen vergleichen, damit 10 grösser als 3 ist");
+  checkVolumeSequence(["100", "20", "3", "10"], [true, true, true, true], "Kubaturen als Zahlen vergleichen, damit 10 grösser als 3 ist");
   checkVolumeSequence([100, null, "", false, "synthetisch ungültig", -1, NaN, Infinity, 150, 0],
-    [false, false, false, false, false, false, false, false, true, false],
+    [true, true, true, true, true, true, true, true, true, true],
     "Fehlende und ungültige Kubaturen überspringen und mit der vorhergehenden gültigen Kubatur vergleichen");
   checkVolumeSequence([undefined], [false], "Eine einzelne GVBSID ohne Kubatur hat keinen Sortierverstoss");
+
+  const notice = elements["package-notice"], noticeList = elements["package-notice-list"], acknowledge = elements["package-notice-close"];
+  const warningIds = () => noticeList.children.map(item => item.dataset.warning).join();
+  ui.configure(volumeCase, map, layers); ui.renderCase();
+  check(notice.open && warningIds() === "volume" && noticeList.textContent ===
+    "INFO: Die GVBSID-Nummerierung stimmt nicht mit der Sortierung der Kubatur überein.",
+    "Falsche Kubaturreihenfolge öffnet ein modales Fenster mit dem gewünschten Text");
+  let cancelPrevented = false;
+  notice.events.cancel({preventDefault() {cancelPrevented = true;}});
+  check(cancelPrevented && notice.open, "Escape kann das zu bestätigende Infofenster nicht schliessen");
+  const firstNoticeCount = notice.showCount;
+  acknowledge.events.click(); ui.renderCase();
+  check(!notice.open && notice.showCount === firstNoticeCount && volumeWarnings().every(Boolean),
+    "Verstanden schliesst das Fenster; Neuzeichnen öffnet es nicht erneut und Kubaturen bleiben rot");
+  ui.configure(volumeCase, map, layers); ui.renderCase();
+  check(notice.open && notice.showCount === firstNoticeCount + 1, "Beim erneuten Öffnen eines Pakets erneut auf die Kubaturreihenfolge hinweisen");
+
+  const noticeCase = {...value, selected: "1000-0", package_id: "egrid:CH-SYNTHETIC-1",
+    records: [200, 100].map((volume, index) => ({...value.records[0], gvbsid: `1000-${index}`, raw: {...value.records[0].raw, Kubatur: volume}})),
+    geo: {...value.geo, volumes: {"101": 200, "102": 100}, buildings: [
+      {egid: "101", gstat: "1004", egrid: "CH-SYNTHETIC-1", addresses: [["Singstrasse", "2", "0000"]]},
+      {egid: "102", gstat: "1004", egrid: "CH-SYNTHETIC-1", addresses: [["Singstrasse", "2.1", "0000"]]},
+    ]}};
+  ui.configure(noticeCase, map, layers); ui.renderCase();
+  check(!notice.open && volumeWarnings().every(marked => !marked), "Richtige Kubaturreihenfolge, eine Kontrollnummer und reine Suffixadressen bleiben ohne Hinweis");
+  const allWarnings = {...noticeCase,
+    records: noticeCase.records.map((record, index) => ({...record, gvbsid: `${1000 + index}-0`,
+      raw: {...record.raw, Kontrollnummer: 1000 + index, Kubatur: index ? 200 : 100}})),
+    geo: {...noticeCase.geo, buildings: noticeCase.geo.buildings.map((building, index) =>
+      ({...building, addresses: [["Singstrasse", index ? "4" : "2", "0000"]]}))}};
+  const beforeNotices = JSON.stringify(allWarnings.records);
+  ui.configure(allWarnings, map, layers); ui.renderCase();
+  check(notice.open && warningIds() === "volume,controls,addresses", "Alle drei Hinweise gemeinsam in einem einzigen Infofenster anzeigen");
+  check(noticeList.children[1].textContent === "ACHTUNG: Mehrere Kontrollnummern auf der Parzelle.",
+    "Mehrere Kontrollnummern mit dem gewünschten ACHTUNG-Text melden");
+  check(volumeWarnings().every(Boolean) && JSON.stringify(allWarnings.records) === beforeNotices && elements.dirty.hidden,
+    "Gesamtes Paket rot markieren, ohne Zuteilungen, Kommentare oder Status zu verändern");
+  const combinedCount = notice.showCount;
+  ui.renderCase();
+  check(notice.open && notice.showCount === combinedCount && noticeList.children.length === 3,
+    "Ein bereits offenes Fenster aktualisieren, ohne zusätzliche Dialoge zu öffnen");
+  acknowledge.events.click(); ui.renderCase();
+  check(!notice.open && notice.showCount === combinedCount, "Eine Bestätigung gilt für sämtliche gleichzeitig angezeigten Hinweise");
+
+  const controlCases = [
+    {records: noticeCase.records.map((record, index) => ({...record, gvbsid: `${1000 + index}-0`})), expected: true},
+    {records: noticeCase.records.map((record, index) => ({...record, raw: {...record.raw, Kontrollnummer: index ? "2" : "0002"}})), expected: false},
+    {records: noticeCase.records.map((record, index) => ({...record, raw: {...record.raw, Kontrollnummer: index ? 2 : 1}})), expected: true},
+    {records: noticeCase.records.map(record => ({...record, raw: {...record.raw, Kontrollnummer: 0}})), expected: false},
+  ];
+  for (const item of controlCases) {
+    ui.configure({...noticeCase, records: item.records}, map, layers); ui.renderCase();
+    check(notice.open === item.expected && (!item.expected || warningIds() === "controls"),
+      "Kontrollnummern aus Originalspalte oder GVBSID korrekt unterscheiden; führende Nullen und Gebäudenummern nicht mehrfach zählen");
+  }
+  const addressCases = [
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "4", "0000"], true],
+    [["Peterstrasse", "23", "0000"], ["Rolfstrasse", "14", "0000"], true],
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "2.1", "0000"], false],
+    [["Singstrasse", "2.1", "0000"], ["Singstrasse", "2.2", "0000"], false],
+    [[" SINGSTRASSE ", "02a", "0000"], ["Singstrasse", "2b", "0000"], false],
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "20", "0000"], true],
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "2/4", "0000"], true],
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "2a", ""], false],
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "2", "1111"], true],
+    [["Singstrasse", "2", "0000"], ["", "", ""], false],
+  ];
+  for (const [first, second, expected] of addressCases) {
+    const geo = {...noticeCase.geo, buildings: noticeCase.geo.buildings.map((building, index) => ({...building, addresses: [index ? second : first]}))};
+    ui.configure({...noticeCase, geo}, map, layers); ui.renderCase();
+    check(notice.open === expected && (!expected || warningIds() === "addresses"),
+      "Unterschiedliche Hauptadressen melden, reine Suffixvarianten und unvollständige Adressen ausnehmen");
+  }
+  const shownAddress = parts => parts[0] && parts[1] ? `${parts[0]} ${parts[1]}${parts[2] ? ", " + parts[2] : ""}` : "";
+  for (const [first, second, expected] of addressCases) {
+    const records = noticeCase.records.map((record, index) => ({...record, address: shownAddress(index ? second : first)}));
+    ui.configure({...noticeCase, records, geo: null}, map, layers); ui.renderCase();
+    check(notice.open === expected && (!expected || warningIds() === "gvbs_addresses"),
+      "GVBS-Suchadressen auch ohne Geodaten auf unterschiedliche Hauptadressen prüfen und reine Suffixe ausnehmen");
+  }
+  const rawGvbsCases = [
+    [{Strasse: "Singstrasse", Hausnummer: 2, "Hausnummer Zusatz": "a", Postleitzahl: "0000"},
+      {Strasse: "Singstrasse", Hausnummer: "2.1", Postleitzahl: "0000"}, false],
+    [{Strassennamen: "Singstrasse", "Nr.": 2, PLZ: "0000"}, {Strassennamen: "Singstrasse", "Nr.": 4, PLZ: "0000"}, true],
+    [{Suchadresse: "Peterstrasse 23,0000"}, {Suchadresse: "Rolfstrasse 14, 0000"}, true],
+    [{"GVBS-Adresse": "Singstrasse 2 0000 Basel"}, {"GVBS-Adresse": "Singstrasse 2.1, 0000 Basel"}, false],
+    [{}, {Strasse: "Singstrasse", Hausnummer: 2}, false],
+    [{Suchadresse: "Synthetisch nicht zerlegbare Adresse"}, {Strasse: "Singstrasse", Hausnummer: 2}, false],
+  ];
+  for (const [first, second, expected] of rawGvbsCases) {
+    const records = noticeCase.records.map((record, index) => ({...record, address: "", raw: {...record.raw, ...(index ? second : first)}}));
+    ui.configure({...noticeCase, records}, map, layers); ui.renderCase();
+    check(notice.open === expected && (!expected || warningIds() === "gvbs_addresses"),
+      "Strukturierte GVBS-Importspalten und Aliasnamen als Rückfall nutzen; unvollständige Angaben nicht als unterschiedliche Adresse werten");
+  }
+  const differentGvbs = noticeCase.records.map((record, index) => ({...record, address: `Singstrasse ${index ? 4 : 2}, 0000`,
+    raw: {...record.raw, Strasse: "Gemeinsame Testgasse", Hausnummer: 1, Postleitzahl: "0000"}}));
+  for (const ratio of ["all", "equal", "different"]) {
+    ui.configure({...noticeCase, records: differentGvbs}, map, layers, undefined, "open", ratio); ui.renderCase();
+    check(notice.open && warningIds() === "gvbs_addresses" && noticeList.textContent ===
+      "INFO: Die GVBSIDs auf der Parzelle haben unterschiedliche Hauptadressen.",
+      "Angezeigte GVBS-Adressen haben Vorrang vor abweichenden Rohspalten und werden in allen Verhältnisfiltern geprüft");
+  }
+  ui.configure({...allWarnings, records: allWarnings.records.map((record, index) => ({...record, address: `Singstrasse ${index ? 4 : 2}, 0000`}))}, map, layers);
+  ui.renderCase();
+  check(notice.open && warningIds() === "volume,controls,addresses,gvbs_addresses" && noticeList.children.length === 4,
+    "GVBS-Adresswarnung gemeinsam mit Kubatur-, Kontrollnummern- und EGID-Adresswarnungen im selben Fenster anzeigen");
+  acknowledge.events.click(); ui.renderCase();
+  check(!notice.open, "Auch die zusätzliche GVBS-Adresswarnung muss nur einmal je geöffnetem Paket bestätigt werden");
+  const sameGvbsAddress = {...noticeCase, records: noticeCase.records.map(record => ({...record, address: "Singstrasse 2, 0000"}))};
+  ui.configure(sameGvbsAddress, map, layers); ui.renderCase();
+  sameGvbsAddress.records[0].comment = "Synthetischer erhaltener Kommentar"; ui.changed(sameGvbsAddress.records[0]);
+  ui.applyGeoCase({...sameGvbsAddress, records: sameGvbsAddress.records.map((record, index) => ({...record, address: `Singstrasse ${index ? 4 : 2}, 0000`}))});
+  check(notice.open && warningIds() === "gvbs_addresses" &&
+    ui.decisionPayload("Abgeschlossen").decisions[0].comment === "Synthetischer erhaltener Kommentar" && !elements.dirty.hidden,
+    "Neu festgestellte GVBS-Adressunterschiede anzeigen und dabei ungespeicherte Kommentare erhalten");
+  const unrelatedAddresses = allWarnings.geo.buildings;
+  for (const geo of [
+    {...noticeCase.geo, buildings: unrelatedAddresses, sources: {buildings: {stale: true}}},
+    {...noticeCase.geo, buildings: unrelatedAddresses, gwr_address_status: {code: "unreachable"}},
+    {...noticeCase.geo, buildings: unrelatedAddresses.map((building, index) => index ? {...building, egrid: "CH-SYNTHETIC-OTHER", egrids: []} : building)},
+    {...noticeCase.geo, buildings: unrelatedAddresses.map((building, index) => index ? {...building, egid: "999"} : building)},
+    {...noticeCase.geo, buildings: unrelatedAddresses.map((building, index) => index ? {...building, gstat: "1007"} : building)},
+    {...noticeCase.geo, buildings: [{...noticeCase.geo.buildings[0], addresses: [["Singstrasse", "2", "0000"], ["Andere Testgasse", "9", "0000"]]}]},
+  ]) {
+    ui.configure({...noticeCase, geo}, map, layers); ui.renderCase();
+    check(!notice.open, "Nur bekannte Adressen mehrerer sichtbarer EGID des aktuellen Pakets aus gültigen Geodaten vergleichen");
+  }
+  const initialWarning = {...noticeCase, records: noticeCase.records.map((record, index) =>
+    ({...record, raw: {...record.raw, Kubatur: index ? 200 : 100}}))};
+  ui.configure(initialWarning, map, layers); ui.renderCase(); acknowledge.events.click();
+  const acknowledgedCount = notice.showCount;
+  initialWarning.records[0].comment = "Synthetischer ungespeicherter Kommentar"; ui.changed(initialWarning.records[0]);
+  ui.applyGeoCase({...initialWarning, geo: {...initialWarning.geo, buildings: unrelatedAddresses}});
+  check(notice.open && notice.showCount === acknowledgedCount + 1 && warningIds() === "volume,addresses",
+    "Ein neuer Adresshinweis nach dem Nachladen öffnet dasselbe Fenster mit allen aktuellen Hinweisen");
+  check(ui.decisionPayload("Abgeschlossen").decisions[0].comment === "Synthetischer ungespeicherter Kommentar" && !elements.dirty.hidden,
+    "Ein nachgeladener Hinweis erhält ungespeicherte Kommentare");
+  acknowledge.events.click(); ui.renderCase();
+  check(!notice.open, "Auch der neue Hinweis wird nach Verstanden nicht bei jedem Neuzeichnen wiederholt");
+  ui.configure(allWarnings, map, layers); ui.renderCase(); ui.showEmptyQueue();
+  check(!notice.open && noticeList.children.length === 0, "Beim Verlassen des Pakets alte Hinweise und das Fenster entfernen");
 
   const guideValue = {...value, selected: "1000-1", package_id: "egrid:CH-SYNTHETIC-1",
     egids: ["102", "103", "101"], assignable_egids: ["101", "102", "103"],
