@@ -13,6 +13,7 @@ let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new M
 let geoRequestId = 0;
 let egidRenderer = null;
 const DEFAULT_MAP_ZOOM = 19;
+const numericIds = new Intl.Collator("de-CH", {numeric: true});
 
 function node(tag, text, className) {
   const item = document.createElement(tag);
@@ -272,6 +273,24 @@ function gwrVolume(egid) {
   return current?.geo?.volumes?.[egid] ?? current?.geo?.buildings?.find(building => building.egid === egid)?.volume;
 }
 
+function volumeRank(egid) {
+  const volume = gwrVolume(egid);
+  return typeof volume === "number" && Number.isFinite(volume) && volume >= 0 ? volume : -1;
+}
+
+function compareEgidVolumes(first, second) {
+  return volumeRank(second) - volumeRank(first) || numericIds.compare(first, second);
+}
+
+function gvbsVolume(record) {
+  const value = record.raw?.Kubatur;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const text = String(value).replace(/['’\s]/g, "").replace(",", ".");
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
+  const volume = Number(text);
+  return Number.isFinite(volume) && volume >= 0 ? volume : null;
+}
+
 function createRecordInfo() {
   const tooltip = node("div", undefined, "record-tooltip");
   tooltip.id = "record-tooltip"; tooltip.setAttribute("role", "tooltip"); tooltip.hidden = true;
@@ -346,6 +365,8 @@ const recordInfo = createRecordInfo();
 function renderCase() {
   recordInfo.hide();
   renderCategoryTheme();
+  const egids = [...current.egids].sort(compareEgidVolumes);
+  const records = [...current.records].sort((first, second) => numericIds.compare(first.gvbsid, second.gvbsid));
   const commonCategory = packageCategory();
   $("case-content").hidden = false; $("empty-note").hidden = true;
   $("case-title").textContent = current.egrids.length ? `EGRID ${current.egrids.join(", ")}` : `${current.selected} (ohne EGRID)`;
@@ -363,7 +384,7 @@ function renderCase() {
     : "Graue EGID sind bereits automatisch zugeteilt und können nicht erneut vergeben werden.";
   const table = node("table"), head = node("thead"), headings = node("tr");
   headings.append(node("th", "GVBS"));
-  for (const egid of current.egids) {
+  for (const egid of egids) {
     const volumeText = ReviewEgidPoints.volumeText(gwrVolume(egid));
     const th = node("th", undefined, "gwr-column"), button = node("button", `${egid} (GWR)${volumeText ? " · " + volumeText : ""}`, "egid-button");
     th.classList.toggle("egid-locked", isBlockedEgid(egid));
@@ -376,7 +397,8 @@ function renderCase() {
   }
   head.append(headings); table.append(head);
   const body = node("tbody");
-  for (const record of current.records) {
+  let previousVolume = null;
+  for (const record of records) {
     const tr = node("tr"); if (["Abgeschlossen", "Keine Zuordnung möglich"].includes(record.status)) tr.className = "row-finished";
     const category = recordCategory(record);
     paintCategory(tr, category);
@@ -384,9 +406,15 @@ function renderCase() {
     trigger.type = "button"; recordInfo.attach(trigger, record);
     const info = node("ul", undefined, "gvbs-info-list");
     const volume = String(record.raw?.Kubatur ?? "").replace(/\s+/g, " ").trim();
+    const numericVolume = gvbsVolume(record);
+    const volumeOutOfOrder = numericVolume !== null && previousVolume !== null && numericVolume > previousVolume;
+    const volumeItem = node("li", `Gebäudevolumen: ${volume ? volume + " m³" : "Nicht angegeben"}`);
+    volumeItem.classList.toggle("volume-order-warning", volumeOutOfOrder);
+    if (volumeOutOfOrder) volumeItem.title = `Kubatur grösser als die vorhergehende gültige Kubatur (${previousVolume} m³).`;
+    if (numericVolume !== null) previousVolume = numericVolume;
     info.append(node("li", `Adresse: ${String(record.address || "–").replace(/\s+/g, " ").trim()}`),
       node("li", `Zweckbestimmung: ${String(record.purpose || "Zweckbestimmung fehlt").replace(/\s+/g, " ").trim()}`),
-      node("li", `Gebäudevolumen: ${volume ? volume + " m³" : "Nicht angegeben"}`));
+      volumeItem);
     identity.append(trigger, node("strong", "GVBS-Info:", "gvbs-info-title"), info);
     if (!commonCategory) {
       const categoryLabel = node("span", category.label, "row-category-label");
@@ -408,7 +436,7 @@ function renderCase() {
       note.append(remove); identity.append(note);
     }
     tr.append(identity);
-    for (const egid of current.egids) {
+    for (const egid of egids) {
       const td = node("td"), checkbox = document.createElement("input");
       td.classList.toggle("egid-locked", isBlockedEgid(egid));
       td.dataset.egid = egid; checkbox.type = "checkbox"; checkbox.checked = record.assigned.includes(egid);

@@ -266,6 +266,77 @@ async function runReviewUiTest(sources) {
   ui.configure({...value, egids: []}, map, layers); ui.renderCase();
   check(elements["case-counts"].classList.contains("is-unbalanced"), "Fehlende EGID bei vorhandener GVBSID ebenfalls rot kennzeichnen");
 
+  const unsortedIds = ["1234-10", "1234-4", "10-2", "2-10", "1234-2", "2-2", "1234-1"];
+  const unsortedEgids = ["12", "10", "7", "5", "11", "2", "9", "6", "8"];
+  const sortedValue = {...value, egids: [...unsortedEgids], assignable_egids: unsortedEgids.filter(egid => egid !== "5"), blocked_egids: ["5"],
+    records: unsortedIds.map(gvbsid => ({...value.records[0], gvbsid, assigned: gvbsid === "1234-10" ? ["10"] : [], comment: `Kommentar ${gvbsid}`})),
+    geo: {...value.geo, volumes: {"2": 500, "10": 500, "6": 0, "7": null, "8": -1, "9": NaN, "11": Infinity, "12": "10000"},
+      buildings: [{egid: "5", gstat: "1004", volume: 1000, addresses: []}]}};
+  ui.configure(sortedValue, map, layers); ui.renderCase();
+  const sortedTable = elements.matrix.children[0];
+  const columnOrder = () => elements.matrix.children[0].children[0].children[0].children.slice(1).map(th => th.children[0].dataset.egid).join();
+  check(columnOrder() === "5,2,10,6,7,8,9,11,12", "EGID nach GWR-Volumen absteigend sortieren, bei Gleichstand numerisch und ungültige oder fehlende Werte zuletzt");
+  check(sortedTable.children[1].children.map(row => row.children[0].children[0].textContent).join() ===
+    "2-2 (GVBSID),2-10 (GVBSID),10-2 (GVBSID),1234-1 (GVBSID),1234-2 (GVBSID),1234-4 (GVBSID),1234-10 (GVBSID)",
+    "Kontrollnummer und Gebäudenummer numerisch aufsteigend sortieren, damit 10 hinter 2 steht");
+  const lastSortedRow = sortedTable.children[1].children[6];
+  check(lastSortedRow.children[3].dataset.egid === "10" && lastSortedRow.children[3].children[0].checked,
+    "Sortierte Checkbox bleibt mit der ursprünglichen GVBSID-EGID-Beziehung verbunden");
+  check(sortedTable.children[0].children[0].children[1].classList.contains("egid-locked") &&
+    sortedTable.children[1].children.every(row => row.children[1].children[0].disabled),
+    "Automatisch gesperrte EGID bleiben auch nach der Volumensortierung grau und deaktiviert");
+  check(sortedValue.egids.join() === unsortedEgids.join() && sortedValue.records.map(record => record.gvbsid).join() === unsortedIds.join(),
+    "Anzeigesortierung verändert weder die Eingabereihenfolge noch die gespeicherten Beziehungen");
+  const sortedComment = lastSortedRow.children[0].children.find(child => child.className === "record-editor").children[1].children[0].children[0];
+  sortedComment.value = "Synthetischer Kommentar nach Sortierung"; sortedComment.events.input();
+  check(ui.decisionPayload("Abgeschlossen").decisions.find(record => record.gvbsid === "1234-10").comment === sortedComment.value,
+    "Kommentar nach der Zeilensortierung weiterhin der richtigen GVBSID zuordnen");
+  sortedValue.geo.volumes["2"] = 2000;
+  ui.renderCase();
+  check(columnOrder() === "2,5,10,6,7,8,9,11,12", "Neue Volumenwerte aktualisieren die EGID-Reihenfolge beim Neuzeichnen");
+  check(ui.decisionPayload("Abgeschlossen").decisions.find(record => record.gvbsid === "1234-10").assigned.join() === "10" && !elements.dirty.hidden,
+    "Eine geänderte Spaltenreihenfolge erhält Zuteilungen und ungespeicherte Bearbeitungen");
+  ui.configure({...sortedValue, geo: null}, map, layers); ui.renderCase();
+  check(columnOrder() === "2,5,6,7,8,9,10,11,12", "Ohne geladene Volumen EGID vorläufig numerisch sortieren");
+
+  const volumeCase = {...value, selected: "1234-1", egids: ["101", "102", "103", "104"],
+    records: [["1234-10", 50], ["1234-4", 150], ["1234-1", 200], ["1234-2", 100]].map(([gvbsid, volume]) =>
+      ({...value.records[0], gvbsid, raw: {...value.records[0].raw, Kubatur: volume}, assigned: ["101"], comment: "Synthetischer Volumenhinweis"}))};
+  const beforeVolumeWarning = JSON.stringify(volumeCase.records);
+  const volumeItems = () => elements.matrix.children[0].children[1].children.map(row => row.children[0].children[2].children[2]);
+  const volumeWarnings = () => volumeItems().map(item => item.classList.contains("volume-order-warning"));
+  ui.configure(volumeCase, map, layers, undefined, "open", "equal"); ui.renderCase();
+  check(volumeWarnings().join() === "false,false,true,false", "Die Kubatur markieren, die gegenüber dem Vorgänger ansteigt");
+  check(elements.matrix.children[0].children[1].children.map(row => row.children[0].children[0].textContent).join() ===
+    "1234-1 (GVBSID),1234-2 (GVBSID),1234-4 (GVBSID),1234-10 (GVBSID)", "Volumenwarnung verändert die numerisch aufsteigende GVBSID-Reihenfolge nicht");
+  check(volumeItems()[2].textContent === "Gebäudevolumen: 150 m³" && volumeItems()[2].title.includes("100 m³"),
+    "Warnung an der GVBS-Kubatur anzeigen und den Vergleichswert im Hinweis nennen");
+  check(!elements.matrix.children[0].children[1].children[2].children[0].classList.contains("volume-order-warning"),
+    "Nur die Volumenangabe und nicht die gesamte GVBSID rot markieren");
+  check(JSON.stringify(volumeCase.records) === beforeVolumeWarning && elements.dirty.hidden,
+    "Volumenprüfung verändert weder Zuteilungen noch Kommentare und erzeugt keine ungespeicherten Änderungen");
+  for (const ratio of ["all", "different"]) {
+    ui.configure(volumeCase, map, layers, undefined, "open", ratio); ui.renderCase();
+    check(volumeWarnings().join() === "false,false,true,false", "Volumenwarnung auch bei allen Verhältnissen und ungleich 1:1 anzeigen");
+  }
+  function checkVolumeSequence(volumes, expected, message) {
+    const records = volumes.map((volume, index) => ({...value.records[0], gvbsid: `1000-${index + 1}`,
+      raw: {...value.records[0].raw, Kubatur: volume}})).reverse();
+    ui.configure({...value, records, egids: volumes.map((_, index) => String(101 + index))}, map, layers, undefined, "open", "equal");
+    ui.renderCase();
+    check(volumeWarnings().join() === expected.join(), message);
+  }
+  checkVolumeSequence([300, 200, 100], [false, false, false], "Bereits absteigende GVBS-Kubaturen nicht markieren");
+  checkVolumeSequence([300, 300, 100], [false, false, false], "Gleiche aufeinanderfolgende Kubaturen sind zulässig");
+  checkVolumeSequence([0, 1, 1, 2], [false, true, false, true], "Null als gültiges Volumen behandeln und jeden lokalen Anstieg markieren");
+  checkVolumeSequence(["1'000,5", "1\u202f000,5", "1’000,6", "999,9"], [false, false, true, false],
+    "Dezimalkomma, geschützte Leerzeichen und Schweizer Tausendertrennzeichen numerisch vergleichen");
+  checkVolumeSequence(["100", "20", "3", "10"], [false, false, false, true], "Kubaturen als Zahlen vergleichen, damit 10 grösser als 3 ist");
+  checkVolumeSequence([100, null, "", false, "synthetisch ungültig", -1, NaN, Infinity, 150, 0],
+    [false, false, false, false, false, false, false, false, true, false],
+    "Fehlende und ungültige Kubaturen überspringen und mit der vorhergehenden gültigen Kubatur vergleichen");
+  checkVolumeSequence([undefined], [false], "Eine einzelne GVBSID ohne Kubatur hat keinen Sortierverstoss");
+
   const dynamicValue = JSON.parse(JSON.stringify({...value, package_id: "egrid:CH-SYNTHETIC-1", package_index: 0,
     records: [value.records[0], {...value.records[0], gvbsid: "SYNTHETIC-2"}]}));
   const refreshed = JSON.parse(JSON.stringify({...dynamicValue, egids: ["101", "102", "999"]}));

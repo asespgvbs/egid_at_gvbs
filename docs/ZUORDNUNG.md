@@ -90,6 +90,23 @@ Kategorie und die Auswahlfelder für Verhältnis, Warteliste und EGRID-Paket. Di
 liegt die Karte. Auf schmalen Bildschirmen stehen Paketkopf, Matrix und Karte
 untereinander.
 
+Die Matrixzeilen sind nach GVBSID numerisch aufsteigend sortiert, zuerst nach
+Kontrollnummer und dann nach Gebäudenummer: beispielsweise `1234-1`, `1234-2`,
+`1234-4`, `1234-10`. Die EGID-Spalten stehen nach GWR-Kubatur (`GVOL`) absteigend,
+mit dem grössten Gebäude zuerst. Bei gleichem Volumen entscheidet die EGID
+numerisch aufsteigend. EGIDs ohne gültige Volumenangabe stehen am Ende;
+`0 m³` gilt als vorhandene Angabe. Nachgeladene Volumen aktualisieren die
+Spaltenreihenfolge. Bestehende Zuteilungen und Kommentare bleiben dabei erhalten.
+
+Bei allen Verhältnisfiltern prüft die Matrix auch die GVBS-Kubaturen in der
+angezeigten, numerisch aufsteigenden GVBSID-Reihenfolge.
+Ist eine Kubatur grösser als die vorhergehende gültige Kubatur im EGRID-Paket,
+erscheint ihre Gebäudevolumenangabe rot und fett. Gleiche Werte sind zulässig;
+fehlende oder ungültige Werte werden beim Vergleich übersprungen. Dezimalkomma
+und Schweizer Tausendertrennzeichen werden berücksichtigt. Die GVBSIDs bleiben
+aufsteigend sortiert. Die Volumenmarkierung gilt bei **Alle Verhältnisse**,
+**Nur 1:1** und **ungleich 1:1**.
+
 Haben alle GVBSIDs eines EGRID-Pakets dieselbe Kategorie, erscheint diese einmal
 unter der EGRID-Überschrift. Die Wiederholungen an den einzelnen GVBSIDs entfallen,
 und der Bearbeitungsbereich übernimmt die gemeinsame Matching-Kategoriefarbe.

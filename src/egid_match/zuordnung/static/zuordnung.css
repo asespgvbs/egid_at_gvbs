@@ -95,3 +95,4 @@ tr.has-category td:first-child{border-left:5px solid var(--category-color);backg
 .map-details{flex-shrink:0}
 @media(max-width:650px){#workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;grid-template-areas:"panel" "matrix" "map"}.parcel-panel{padding:12px}.map-pane{height:65vh}}
 .case-counts.is-unbalanced{color:#b4232d}
+.matrix-wrap .volume-order-warning{color:#b4232d;font-weight:700}
