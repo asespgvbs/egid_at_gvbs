@@ -125,6 +125,48 @@ class AppTests(SyntheticMemory):
         self.post("/api/activate")
         self.assertEqual(len(self.client.get("/api/queue").json["records"]), 2)
 
+    def test_unassigned_count_without_database_and_in_empty_store_is_zero(self):
+        self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 0)
+        self.database = self.empty_store(self.folder / "synthetic-empty.sqlite")
+        self.select()
+        self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 0)
+        self.fetch.assert_not_called()
+
+    def test_unassigned_count_uses_saved_assignments_and_updates_after_saving(self):
+        self.select(activate=True)
+        self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 3)
+        response = self.post("/api/save", self.decision(assigned=["101", "102"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["unassigned_count"], 2)
+        self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 2)
+        response = self.post("/api/save", self.decision("Sonderfall", [], version=2))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["unassigned_count"], 3)
+        self.fetch.assert_not_called()
+
+    def test_unassigned_count_is_independent_of_status_and_queue_filters(self):
+        self.database.save([
+            {"gvbsid": "SYNTHETIC-1", "version": 1, "status": "Abgeschlossen", "assigned": ["101", "102"]},
+            {"gvbsid": "SYNTHETIC-2", "version": 1, "status": "Sonderfall", "assigned": []},
+            {"gvbsid": "SYNTHETIC-3", "version": 1, "status": "Keine Zuordnung möglich", "assigned": []},
+        ], {"101", "102"})
+        self.select(activate=True)
+        for view in ("open", "special", "completed"):
+            for ratio in ("all", "equal", "different"):
+                self.assertEqual(self.client.get("/api/queue", query_string={"view": view, "ratio": ratio}).status_code, 200)
+                self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 2)
+        self.fetch.assert_not_called()
+
+    def test_unassigned_count_deduplicates_gvbsids_in_multiple_egrid_packages(self):
+        values = [list(row) for row in VALUES]
+        values[1][7] = "CH-SYNTHETIC-1, CH-SYNTHETIC-2"
+        self.database.import_rows(HEADERS, values, automatic_egids={"999"})
+        self.select(activate=True)
+        queue = self.client.get("/api/queue").json["records"]
+        self.assertEqual(sum(row["record_count"] for row in queue), 4)
+        self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 3)
+        self.fetch.assert_not_called()
+
     def test_status_queue_search_and_reopening_completed_cases(self):
         self.select(activate=True)
         response = self.post("/api/save", self.decision())

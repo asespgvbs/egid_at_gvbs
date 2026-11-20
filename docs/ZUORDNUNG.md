@@ -90,6 +90,11 @@ Kategorie und die Auswahlfelder für Verhältnis, Warteliste und EGRID-Paket. Di
 liegt die Karte. Auf schmalen Bildschirmen stehen Paketkopf, Matrix und Karte
 untereinander.
 
+Die obere ausklappbare Bedienleiste schliesst sofort, sobald die Maus ihren
+Bereich verlässt, ohne Wartezeit oder Ausblendanimation. Am oberen Fensterrand
+lässt sie sich wieder einblenden. Während der Einrichtung bleibt die Leiste
+sichtbar, bis die Prüffälle aktiviert sind.
+
 Die Matrixzeilen sind nach GVBSID numerisch aufsteigend sortiert, zuerst nach
 Kontrollnummer und dann nach Gebäudenummer: beispielsweise `1234-1`, `1234-2`,
 `1234-4`, `1234-10`. Die EGID-Spalten stehen nach GWR-Kubatur (`GVOL`) absteigend,
@@ -218,7 +223,18 @@ der gewählten Warteliste und überspringen alle weiteren GVBSIDs des angezeigte
 Pakets. Ein Paket umfasst genau die Fälle einer EGRID. Ohne verlässliche EGRID
 ist jeder Fall ein eigenes Paket. Die Reihenfolge folgt
 dem ersten Auftreten im Import, auch wenn die Mitglieder eines Pakets dort
-verstreut standen. Die Anzeige nennt die aktuelle Paketnummer. Einzelne GVBSIDs
+verstreut standen. Anstelle der Paketnummer zeigt die Anzeige beispielsweise
+**Noch 123 von 200 GVBSIDs ohne EGID**. Die Gesamtzahl entspricht allen importierten
+Prüffällen nach automatischer Zuordnung und bleibt bei manuellen Zuteilungen
+unverändert. Gezählt werden alle importierten GVBSIDs ohne
+gespeicherte EGID-Zuteilung, unabhängig von Wartelistenstatus und Verhältnisfilter.
+Jede GVBSID zählt einmal, auch wenn sie zu mehreren EGRID-Paketen gehört. Fälle
+mit Status Abgeschlossen oder Sonderfall ohne EGID zählen ebenfalls mit.
+Mehrere gespeicherte EGIDs einer GVBSID gelten als eine zugeteilte GVBSID;
+Kandidaten und Grössenvorschläge gelten nicht als gespeicherte Zuteilung.
+Ungespeicherte Checkboxänderungen verändern den Zähler nicht; nach dem Speichern
+wird er aktualisiert. **Ausserhalb der Auswahl** bleibt als separater Hinweis
+sichtbar, wenn das geöffnete Paket nicht zur gefilterten Warteliste gehört. Einzelne GVBSIDs
 bleiben über die Suche erreichbar; geöffnet wird ihr EGRID-Paket. Beim Blättern
 bleibt die Rückfrage zu ungespeicherten Änderungen bestehen.
 

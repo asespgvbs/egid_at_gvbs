@@ -99,13 +99,16 @@ class ReviewSession:
         warning = self.warning
         if self.store is not None and not automatic_known:
             warning = (warning + " Bitte die vollständige Matching-Datei laden, um automatisch zugeteilte EGID zu sperren.").strip()
+        records = self.store.records() if self.store else []
+        unassigned_count = len({record["gvbsid"] for record in records if not record["assigned"]})
         package_statuses = [self.package_status(package["records"])
-                            for package in self.record_packages(self.store.records())] if self.store else []
+                            for package in self.record_packages(records)]
         package_progress = {"total": len(package_statuses), "completed": package_statuses.count("Abgeschlossen"),
                             "special": package_statuses.count("Sonderfall"), "remaining": package_statuses.count("Offen")}
         return {"database": str(self.store.path) if self.store else None, "active": self.active,
                 "progress": progress, "warning": warning, "statuses": list(STATUSES),
                 "package_progress": package_progress,
+                "unassigned_count": unassigned_count,
                 "automatic_assignments_loaded": automatic_known}
 
     def record_grids(self, record):
