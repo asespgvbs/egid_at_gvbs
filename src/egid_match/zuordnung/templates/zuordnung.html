@@ -30,9 +30,20 @@
   </div>
   <main id="workspace">
     <section id="left-pane" class="left-pane" aria-label="GVBSID-Zuordnung">
-      <div class="case-heading"><div><h1 id="case-title">Prüffälle laden</h1><strong id="case-counts" class="case-counts" aria-live="polite" hidden></strong><span id="case-category" class="category-badge" role="status" hidden></span></div><span id="queue-position" class="badge">Gesperrt</span></div>
-      <div id="queue-filter-bar"><label for="queue-view">Warteliste</label><select id="queue-view" disabled><option value="open">Offen</option><option value="special">Sonderfälle</option><option value="completed">Abgeschlossen</option></select></div>
-      <div id="queue-bar"><label for="queue">EGRID-Paket</label><select id="queue" disabled><option>Noch keine Daten geladen</option></select></div>
+      <div class="case-heading">
+        <div class="case-summary">
+          <h1 id="case-title">Prüffälle laden</h1>
+          <div class="case-summary-counts">
+            <strong id="case-counts" class="case-counts" aria-live="polite" hidden></strong>
+            <span id="queue-position" class="badge">Gesperrt</span>
+          </div>
+          <span id="case-category" class="category-badge" role="status" hidden></span>
+        </div>
+        <div class="package-selectors">
+          <div id="queue-filter-bar"><label for="queue-view">Warteliste</label><select id="queue-view" disabled><option value="open">Offen</option><option value="special">Sonderfälle</option><option value="completed">Abgeschlossen</option></select></div>
+          <div id="queue-bar"><label for="queue">EGRID-Paket</label><select id="queue" disabled><option>Noch keine Daten geladen</option></select></div>
+        </div>
+      </div>
       <p id="empty-note" class="empty-note">Zuerst eine Datenbank auswählen. Danach Excel laden oder gespeicherte Daten bewusst aktivieren.</p>
       <div id="case-content" hidden>
         <div class="case-meta"><span id="dirty" hidden>Nicht gespeicherte Änderungen</span></div>
