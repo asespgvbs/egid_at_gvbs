@@ -34,7 +34,8 @@ COLUMN_ALIASES = {
 }
 SUFFIX_PAIR_AUTO = "address_suffix_pair_ge4"
 SUFFIX_PAIR_REVIEW = "address_suffix_pair_lt4"
-SUFFIX_SINGLE_REVIEW = "review_suffix_single_building"
+SUFFIX_SINGLE_REVIEW = "review_suffix_single_gvbsid_multiple_egid"
+CATEGORY_ALIASES = {"review_suffix_single_building": SUFFIX_SINGLE_REVIEW}
 CATEGORIES = [
     (
         "perfect_match",
@@ -159,12 +160,17 @@ CATEGORY_COLORS = {
 }
 # Excel begrenzt Blattnamen auf 31 Zeichen; Kategorien bleiben ausgeschrieben.
 CATEGORY_SHEET_TITLES = {
+    SUFFIX_SINGLE_REVIEW: "review_suffix_1gvbsid_n_egid",
     "oneEgid_oneAddress_multipleGVBSIDs": "oneEgid_oneAddr_multipleGVBSIDs",
     "oneEgid_multipleAddresses_multipleGVBSIDs": "oneEgid_multiAddr_multiGVBSIDs",
 }
 # ============================================================
 # HILFSFUNKTIONEN
 # ============================================================
+def category_name(value):
+    value = txt(value)
+    return CATEGORY_ALIASES.get(value, value)
+
 def anzahl_text(anzahl, singular, plural):
     wort = singular if anzahl == 1 else plural
     return f"{anzahl} {wort}"
@@ -367,7 +373,7 @@ def positive_kubatur(value):
 
 
 def apply_suffix_pairs(records, keys, gvbs_keys, results, conflicts_by_row,
-                       addr_egids, gvbs_by_egid):
+                       addr_egids, gvbs_by_egid, egid_addresses, egid_grids, grid_egids):
     """Verfeinert ausschliesslich eindeutige Adress-Suffix-Prüfpaare."""
     by_control = defaultdict(list)
     for index, (control, _) in enumerate(gvbs_keys):
@@ -394,6 +400,12 @@ def apply_suffix_pairs(records, keys, gvbs_keys, results, conflicts_by_row,
         if addr_egids.get(suffix_address, set()) != {suffix_egid}:
             continue
         main_egid = next(iter(addr_egids[keys[main]]))
+        # Auch numerische Suffixadressen mit eigener GVBSID verhindern das Zweierpaar.
+        all_suffixes = find_address_suffix_conflicts(
+            keys[main], main_egid, egid_addresses, egid_grids, grid_egids, {},
+        )
+        if any(item["EGID"] != suffix_egid or item["GWR-Adresse"] != suffix_address for item in all_suffixes):
+            continue
         if gvbs_by_egid[main_egid] != {gvbs_keys[main], gvbs_keys[annex]} or gvbs_by_egid.get(suffix_egid):
             continue
         volumes = [positive_kubatur(records[index].get("Kubatur")) for index in (main, annex)]
@@ -970,7 +982,7 @@ def match(
                 summary,
         })
     apply_suffix_pairs(matching_records, keys, gvbs_keys, results, conflicts_by_row,
-                       addr_egids, gvbs_by_egid)
+                       addr_egids, gvbs_by_egid, egid_addresses, egid_grids, grid_egids)
     return results
 # ============================================================
 # EXCEL-AUSGABE

@@ -151,6 +151,14 @@ class SuffixPairTests(unittest.TestCase):
                 self.assertTrue(all(row["Matching-Kategorie"] == category for row in results))
                 self.assertTrue(all(row["EGID mit Hausnummernzusatz"] == "900000002" for row in results))
 
+    def test_additional_numeric_suffix_with_own_gvbsid_also_prevents_pair(self):
+        fixture = synthetic_pair(suffixes=("12.1", "12.2"))
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OTHER", "Hausnummer Zusatz": ".2"})
+        results = self.evaluate(fixture)
+        self.assertEqual([row["Matching-Kategorie"] for row in results[:2]], ["review_address_suffix"] * 2)
+        self.assertTrue(all(row["EGID"] is None for row in results[:2]))
+        self.assertEqual(results[2]["EGID"], 900000003)
+
     def test_ambiguous_dot_one_candidate_outside_parcel_is_rejected(self):
         fixture = synthetic_pair()
         suffix = next(iter(fixture[2][900000002]))
@@ -317,8 +325,11 @@ class SuffixPairTests(unittest.TestCase):
         self.assertEqual(results[0]["EGID mit Hausnummernzusatz"], "900000002")
         workbook = self.workbook(fixture, results)
         category = matching.SUFFIX_SINGLE_REVIEW
-        self.assertEqual(workbook[category].max_row, 2)
-        self.assertEqual(workbook[category]["A2"].fill.fgColor.rgb, "00E6C200")
+        sheet = workbook[matching.CATEGORY_SHEET_TITLES[category]]
+        self.assertLessEqual(len(sheet.title), 31)
+        self.assertEqual(sheet.max_row, 2)
+        self.assertEqual(sheet["A2"].fill.fgColor.rgb, "00E6C200")
+        self.assertEqual(category, "review_suffix_single_gvbsid_multiple_egid")
         summary = {row[0]: row[1] for row in list(workbook["Zusammenfassung"].values)[1:]}
         self.assertEqual(summary[category], 1)
         self.assertEqual(summary["Automatisch zugeordnet"], 0)
@@ -341,7 +352,7 @@ class SuffixPairTests(unittest.TestCase):
         fixture = synthetic_pair((None,), (0,))
         workbook = self.workbook(fixture, self.evaluate(fixture))
         for name in list(workbook.sheetnames):
-            if name != matching.SUFFIX_SINGLE_REVIEW:
+            if name != matching.CATEGORY_SHEET_TITLES[matching.SUFFIX_SINGLE_REVIEW]:
                 del workbook[name]
         with patch.object(store, "load_workbook", return_value=workbook):
             _, imported, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))

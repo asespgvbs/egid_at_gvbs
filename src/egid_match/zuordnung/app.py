@@ -20,7 +20,7 @@ from .geo import DEFAULTS, GeoBS, cached_context
 from .gwr import read_gwr_addresses, read_gwr_volumes
 from .store import FINISHED, QUEUE_STATUSES, ReviewStore, STATUSES
 from ..common import ConflictError, ReviewError, txt
-from ..matching import CATEGORY_COLORS, DEFAULT_GWR_DB
+from ..matching import CATEGORY_ALIASES, CATEGORY_COLORS, DEFAULT_GWR_DB
 
 
 class NativeDialogs:
@@ -101,14 +101,16 @@ class ReviewSession:
             warning = (warning + " Bitte die vollständige Matching-Datei laden, um automatisch zugeteilte EGID zu sperren.").strip()
         records = self.store.records() if self.store else []
         unassigned_count = len({record["gvbsid"] for record in records if not record["assigned"]})
+        packages = self.record_packages(records)
         package_statuses = [self.package_status(package["records"])
-                            for package in self.record_packages(records)]
+                            for package in packages]
         package_progress = {"total": len(package_statuses), "completed": package_statuses.count("Abgeschlossen"),
                             "special": package_statuses.count("Sonderfall"), "remaining": package_statuses.count("Offen")}
         return {"database": str(self.store.path) if self.store else None, "active": self.active,
                 "progress": progress, "warning": warning, "statuses": list(STATUSES),
                 "package_progress": package_progress,
                 "unassigned_count": unassigned_count,
+                "assignment_counts": self.assignment_counts(records, packages),
                 "automatic_assignments_loaded": automatic_known}
 
     def record_grids(self, record):
@@ -150,6 +152,21 @@ class ReviewSession:
                         or package["egrid"] in building.get("egrids", [])):
                     available.add(building["egid"])
         return available
+
+    def assignment_counts(self, records=None, packages=None):
+        """Jede GVBSID je Verhältnisgruppe einmal, unabhängig vom Wartelistenstatus."""
+        if records is None:
+            records = self.store.records() if self.store else []
+        if packages is None:
+            packages = self.record_packages(records)
+        groups = {"all": {record["gvbsid"] for record in records}, "equal": set(), "different": set()}
+        unassigned = {record["gvbsid"] for record in records if not record["assigned"]}
+        for package in packages:
+            gvbsids = {record["gvbsid"] for record in package["records"]}
+            ratio = "equal" if len(gvbsids) == len(self.package_egids(package)) else "different"
+            groups[ratio].update(gvbsids)
+        return {ratio: {"total": len(gvbsids), "unassigned": len(gvbsids & unassigned)}
+                for ratio, gvbsids in groups.items()}
 
     def queue(self, view="open", ratio="all"):
         if view not in QUEUE_STATUSES:
@@ -266,6 +283,7 @@ class ReviewApplication:
                 # Der Token enthaelt nur URL-sichere ASCII-Zeichen.
                 template = template.replace("__REVIEW_CONFIG__", json.dumps({
                     "token": self.token, "category_colors": CATEGORY_COLORS,
+                    "category_aliases": CATEGORY_ALIASES,
                 }))
                 return Response(200, template.encode("utf-8"), "text/html; charset=utf-8")
             if method == "GET" and path in ("/static/zuordnung.css", "/static/zuordnung.js", "/static/egid_punkte.js"):
@@ -280,7 +298,8 @@ class ReviewApplication:
                         query = parse_qs(parts.query)
                         view = query.get("view", ["open"])[0]
                         ratio = query.get("ratio", ["all"])[0]
-                        return json_response({"records": self.session.queue(view, ratio)})
+                        return json_response({"records": self.session.queue(view, ratio),
+                                              "assignment_counts": self.session.assignment_counts()})
                     if path == "/api/case":
                         query = parse_qs(parts.query)
                         gvbsid = query.get("gvbsid", [""])[0]

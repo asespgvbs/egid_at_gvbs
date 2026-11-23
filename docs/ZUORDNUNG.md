@@ -29,12 +29,21 @@ unverändert und unabhängig vom Zuordnungswerkzeug.
    sind zur Laufzeit ausdrücklich möglich. Vorhandene Dateien werden bei der
    Neuerstellung auch nach einer Dialogbestätigung nicht überschrieben.
 2. **Excel laden** übernimmt die Blätter `review_address_suffix`,
-   `address_suffix_pair_lt4` und `review_suffix_single_building`, soweit vorhanden.
+   `address_suffix_pair_lt4` und `review_suffix_1gvbsid_n_egid`, soweit vorhanden.
    Das zweite Blatt enthält orange Adress-Suffix-Paare mit Kubaturverhältnis
    unter 4 zur manuellen Prüfung. Das dritte Blatt enthält dunkelgelbe Prüffälle mit
    genau einer Importzeile `Kontrollnummer-0` an der Hauptadresse und einer oder
    mehreren zusätzlichen GWR-Suffixadressen. Diese Kontrollnummer kommt im
    gesamten Import nur einmal vor; es erfolgt keine automatische Zuordnung.
+   Die vollständige Kategorie heisst `review_suffix_single_gvbsid_multiple_egid`;
+   der Blattname ist wegen der Excel-Grenze von 31 Zeichen verkürzt.
+   Der alte Name `review_suffix_single_building` bleibt importierbar und wird
+   wie die neue Kategorie als **Eine GVBSID mit mehreren EGIDs · Manuell prüfen**
+   mit derselben dunkelgelben Farbe angezeigt. Originalwerte bleiben erhalten.
+   Vollständige, gekürzte und alte Kategorieblattnamen werden ohne Beachtung
+   von Gross-/Kleinschreibung und äusseren Leerzeichen erkannt.
+   Das vollständige Gesamtblatt ist die bevorzugte Quelle; fehlende, leere oder
+   unvollständige Kategorieblätter führen dadurch nicht zum Auslassen von Prüffällen.
    Hellbraun markierte Paare aus `address_suffix_pair_ge4` sind bereits automatisch
    zugeordnet und werden nicht als Prüffälle importiert; ihre EGID werden gesperrt.
    Die Prüffallblätter müssen dieselben
@@ -47,6 +56,12 @@ Für den Import wird die **vollständige Matching-Datei mit dem Blatt `Matching`
 benötigt. Daraus übernimmt die App alle tatsächlich automatisch zugeteilten EGID
 in eine globale Sperrliste, auch wenn die zugehörigen GVBSIDs keine Prüffälle
 sind. Reine Prüffalldateien ohne diese Information werden zurückgewiesen.
+Ein umbenanntes Gesamtblatt wird anhand der Spalten `GVBSID`, `Matching-Kategorie`,
+`EGID`, `Automatische Zuordnung` und `EGID-Kandidaten` erkannt. Seine Gesamtzahl
+und Kategorieanzahlen müssen zur exportierten Zusammenfassung (`Kategorie`,
+`Anzahl`, `Gesamt`) passen. Einzelne Kategorieblätter gelten nicht als vollständige
+Sperrliste. Auch beim Namen `Matching` werden Gross-/Kleinschreibung und äussere
+Leerzeichen ignoriert.
 Aktuelle App-Exporte enthalten die Sperrliste im Blatt `Automatische Zuordnungen`
 und können ebenfalls importiert werden. Bereits bekannte Sperren bleiben bei
 weiteren Importen erhalten.
@@ -129,9 +144,11 @@ Die Kontrollnummer kommt aus der Importspalte `Kontrollnummer`, ersatzweise aus
 dem Teil der GVBSID vor der letzten Trennung zur Gebäudenummer. Für den
 Adressvergleich zählen bekannte GWR-Adressen der im Paket angezeigten EGIDs.
 Unterschiedliche Strassen oder Hauptnummern lösen den Hinweis aus, etwa
-`Singstrasse 2` und `Singstrasse 4`. Reine Suffixunterschiede derselben
-Hauptadresse, etwa `Singstrasse 2`, `Singstrasse 2.1` und `Singstrasse 2a`,
-bleiben ohne Hinweis. Fehlende Adressen, veraltete Geodaten und Adressen anderer
+`Singstrasse 2` und `Singstrasse 4`. Nur Punkt-Zahl-Zusätze derselben Hauptadresse,
+etwa `Singstrasse 2`, `Singstrasse 2.1` und `Singstrasse 2.2`, bleiben ohne Hinweis.
+`Singstrasse 2`, `Singstrasse 2A` und `Singstrasse 2B` sind unterschiedliche
+Adressen; allein Gross-/Kleinschreibung (`2a` und `2A`) erzeugt keinen Unterschied.
+Fehlende Adressen, veraltete Geodaten und Adressen anderer
 EGRID-Pakete werden nicht als Beleg für unterschiedliche Hauptadressen verwendet.
 Für GVBSIDs werden die angezeigten Suchadressen verwendet, ersatzweise die
 importierten Spalten `Strasse`, `Hausnummer`, `Hausnummer Zusatz` und
@@ -224,16 +241,23 @@ Pakets. Ein Paket umfasst genau die Fälle einer EGRID. Ohne verlässliche EGRID
 ist jeder Fall ein eigenes Paket. Die Reihenfolge folgt
 dem ersten Auftreten im Import, auch wenn die Mitglieder eines Pakets dort
 verstreut standen. Anstelle der Paketnummer zeigt die Anzeige beispielsweise
-**Noch 123 von 200 GVBSIDs ohne EGID**. Die Gesamtzahl entspricht allen importierten
-Prüffällen nach automatischer Zuordnung und bleibt bei manuellen Zuteilungen
-unverändert. Gezählt werden alle importierten GVBSIDs ohne
-gespeicherte EGID-Zuteilung, unabhängig von Wartelistenstatus und Verhältnisfilter.
-Jede GVBSID zählt einmal, auch wenn sie zu mehreren EGRID-Paketen gehört. Fälle
+**Noch 123 von 200 GVBSIDs ohne EGID · Alle Verhältnisse**. Beide Zahlen beziehen
+sich auf den gewählten Verhältnisfilter: **Alle Verhältnisse**, **Nur 1:1** oder
+**ungleich 1:1**. Die Gesamtzahl umfasst alle importierten Prüffälle dieser Gruppe;
+die verbleibende Anzahl umfasst deren GVBSIDs ohne gespeicherte EGID-Zuteilung.
+Beide Zahlen bleiben unabhängig vom Wartelistenstatus. Auch 2:2 oder 4:4 gehören
+zu **Nur 1:1**, ein Paket mit 1:0 gehört zu **ungleich 1:1**.
+Jede GVBSID zählt innerhalb jeder Ansicht einmal. Gehört sie zu Paketen beider
+Verhältnisgruppen, zählt sie in beiden Teilansichten, im Gesamtbestand aber nur
+einmal. Die beiden Teilansichten müssen deshalb zusammen nicht die Gesamtzahl ergeben. Fälle
 mit Status Abgeschlossen oder Sonderfall ohne EGID zählen ebenfalls mit.
 Mehrere gespeicherte EGIDs einer GVBSID gelten als eine zugeteilte GVBSID;
 Kandidaten und Grössenvorschläge gelten nicht als gespeicherte Zuteilung.
 Ungespeicherte Checkboxänderungen verändern den Zähler nicht; nach dem Speichern
-wird er aktualisiert. **Ausserhalb der Auswahl** bleibt als separater Hinweis
+wird er aktualisiert. Gespeicherte Zuteilungen und nachgeladene verlässliche
+Geodaten können die Verhältnisgruppe eines Pakets und damit beide Zahlen ändern.
+Die Zählung selbst löst keine zusätzlichen Geodatenabfragen aus.
+**Ausserhalb der Auswahl** bleibt als separater Hinweis
 sichtbar, wenn das geöffnete Paket nicht zur gefilterten Warteliste gehört. Einzelne GVBSIDs
 bleiben über die Suche erreichbar; geöffnet wird ihr EGRID-Paket. Beim Blättern
 bleibt die Rückfrage zu ungespeicherten Änderungen bestehen.

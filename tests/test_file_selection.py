@@ -233,7 +233,7 @@ def synthetic_assignment_case(numbers, candidates_by_number, *, missing_grid=Fal
         grid_egids.clear()
     if suffix_conflict:
         suffix_egid = 900000099
-        suffix_key = app.address("Synthetische Teststrasse", "10a", "0000")
+        suffix_key = app.address("Synthetische Teststrasse", "10.1", "0000")
         addr_egids[suffix_key] = {suffix_egid}
         egid_addresses[suffix_egid] = {suffix_key}
         egid_grids[suffix_egid] = set(egid_grids[900000001])
@@ -334,7 +334,7 @@ class CategoryPriorityTests(unittest.TestCase):
 
     def test_suffix_address_with_own_gvbsid_allows_automatic_assignment(self):
         _, results = synthetic_assignment_case(
-            ["10", "10", "10a"], {"10": {900000001}, "10a": {900000099}}, suffix_conflict=True,
+            ["10", "10", "10.1"], {"10": {900000001}, "10.1": {900000099}}, suffix_conflict=True,
         )
         self.assertEqual([row["Matching-Kategorie"] for row in results], [
             "oneEgid_oneAddress_multipleGVBSIDs", "oneEgid_oneAddress_multipleGVBSIDs", "super_match",

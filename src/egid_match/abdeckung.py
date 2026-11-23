@@ -89,7 +89,7 @@ def analyze_coverage(existing_egids, matching_results, egid_addresses, egid_grid
 
     for result in matching_results:
         gvbsid = gvbs.txt(result.get("GVBSID"))
-        category = result["Matching-Kategorie"]
+        category = gvbs.category_name(result["Matching-Kategorie"])
         candidates = _identifiers(result.get("EGID-Kandidaten"))
         for token in sorted(candidates):
             if token not in inventory:

@@ -3,6 +3,7 @@
 const reviewConfig = JSON.parse(document.getElementById("review-config").textContent);
 const token = reviewConfig.token;
 const categoryColors = reviewConfig.category_colors || {};
+const categoryAliases = reviewConfig.category_aliases || {};
 const $ = id => document.getElementById(id);
 let state = null, current = null, queue = [], dirty = new Set(), busy = false, generation = 0;
 let queueView = "open";
@@ -24,14 +25,15 @@ function node(tag, text, className) {
 }
 
 function recordCategory(record) {
-  const name = String(record?.raw?.["Matching-Kategorie"] || "").trim();
+  const importedName = String(record?.raw?.["Matching-Kategorie"] || "").trim();
+  const name = Object.hasOwn(categoryAliases, importedName) ? categoryAliases[importedName] : importedName;
   const hex = categoryColors[name];
   const color = typeof hex === "string" && /^[a-f\d]{6}$/i.test(hex) ? "#" + hex : null;
   const labels = {
     review_address_suffix: "Adress-Suffix · Allgemeine Prüfung",
     address_suffix_pair_lt4: "Adress-Suffix-Paar · Manuell prüfen",
     address_suffix_pair_ge4: "Adress-Suffix-Paar · Automatisch zugeordnet",
-    review_suffix_single_building: "Ein Gebäude mit Adress-Suffix",
+    review_suffix_single_gvbsid_multiple_egid: "Eine GVBSID mit mehreren EGIDs · Manuell prüfen",
   };
   return {name, color, label: Object.hasOwn(labels, name) ? labels[name] : name || "Kategorie unbekannt"};
 }
@@ -226,11 +228,13 @@ function renderQueueCount() {
     $("queue-scope").hidden = true;
     return;
   }
-  const count = state.unassigned_count, total = state.progress?.total;
+  const counts = state.assignment_counts?.[queueRatio];
+  const count = counts?.unassigned ?? (queueRatio === "all" ? state.unassigned_count : undefined);
+  const total = counts?.total ?? (queueRatio === "all" ? state.progress?.total : undefined);
   badge.textContent = Number.isInteger(count) && count >= 0 && Number.isInteger(total) && total >= count
-    ? `Noch ${count} von ${total} ${total === 1 ? "GVBSID" : "GVBSIDs"} ohne EGID`
+    ? `Noch ${count} von ${total} ${total === 1 ? "GVBSID" : "GVBSIDs"} ohne EGID · ${ratioLabels[queueRatio]}`
     : "Anzahl ohne EGID nicht verfügbar";
-  badge.title = "Verbleibende GVBSIDs ohne gespeicherte EGID-Zuteilung von allen importierten Prüffällen nach automatischer Zuordnung, unabhängig von Wartelisten- und Verhältnisfilter.";
+  badge.title = `GVBSIDs ohne gespeicherte EGID-Zuteilung im Verhältnisfilter «${ratioLabels[queueRatio]}», unabhängig vom Wartelistenstatus. Jede GVBSID zählt innerhalb dieser Ansicht einmal; bei Paketen beider Verhältnisgruppen kann sie in beiden Teilansichten vorkommen.`;
   $("queue-scope").hidden = !current || queue.some(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected));
 }
 
@@ -275,6 +279,7 @@ async function refreshQueue(stamp = null) {
   const value = await api(queueRequestPath());
   if (view !== queueView || ratio !== queueRatio || (stamp !== null && stamp !== generation)) return;
   queue = value.records;
+  if (value.assignment_counts) state.assignment_counts = value.assignment_counts;
   $("queue-view").value = queueView;
   $("queue-ratio").value = queueRatio;
   $("queue").replaceChildren();
@@ -288,6 +293,7 @@ async function refreshQueue(stamp = null) {
     option.value = record.package_id || record.gvbsid; $("queue").append(option);
   }
   if (current && queue.some(record => (record.package_id || record.gvbsid) === (current.package_id || current.selected))) $("queue").value = current.package_id || current.selected;
+  renderQueueCount();
   gates();
 }
 
@@ -345,8 +351,8 @@ function differentMainAddresses(entries) {
     if (!Array.isArray(address)) continue;
     const street = normal(address[0]), number = normal(address[1]).replace(/\s+/g, ""), postal = normal(address[2]);
     if (!street || !number) continue;
-    // Gleiche Hauptnummer mit Buchstaben- oder .Zahl-Suffix ist dieselbe Hauptadresse.
-    const match = number.match(/^(\d+)(?:[a-z]+|\.\d+)?$/);
+    // Nur .Zahl-Zusätze zusammenfassen; Buchstaben bleiben Teil der eigenen Adresse.
+    const match = number.match(/^(\d+[a-z]*)(?:\.\d+)?$/);
     const mainNumber = match ? match[1].replace(/^0+(?=\d)/, "") : number;
     const key = JSON.stringify([street, mainNumber]);
     if (!addresses.has(key)) addresses.set(key, new Set());
@@ -374,7 +380,7 @@ function differentEgidAddresses() {
 function gvbsAddress(record) {
   const raw = record.raw || {};
   const text = String(record.address || raw.Suchadresse || raw["GVBS-Adresse"] || "").replace(/\s+/g, " ").trim();
-  const match = text.match(/^(.+?)\s+(\d+(?:\s*[a-z]+|\.\d+|\s*[/-]\s*\d+)?)(?:\s*,\s*(\d{4})(?:\s+.*)?|\s+(\d{4})(?:\s+.*)?)?$/i);
+  const match = text.match(/^(.+?)\s+(\d+(?:\s*[a-z]+)?(?:\.\d+)?|\d+\s*[/-]\s*\d+)(?:\s*,\s*(\d{4})(?:\s+.*)?|\s+(\d{4})(?:\s+.*)?)?$/i);
   if (match) return [match[1], match[2], match[3] || match[4] || ""];
   const street = String(raw.Strasse ?? raw.Strassennamen ?? "").trim();
   const number = String(raw.Hausnummer ?? raw["Nr."] ?? "").trim();
@@ -701,6 +707,7 @@ async function switchQueueFilters(view, ratio) {
   catch (error) {
     queueView = previousView; queueRatio = previousRatio;
     $("queue-view").value = previousView; $("queue-ratio").value = previousRatio;
+    renderQueueCount();
     throw error;
   }
 }

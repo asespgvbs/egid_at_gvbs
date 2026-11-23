@@ -296,8 +296,9 @@ class StoreTests(SyntheticMemory):
         with patch("egid_match.zuordnung.store.load_workbook", return_value=workbook):
             self.assertEqual(store.import_excel(path), 3)
         self.assertEqual(store.records()[0]["raw"]["Originalwert"], "0012")
-        fake = Mock()
-        fake.sheetnames = ["SynthetischFalschesBlatt"]
+        fake = Workbook()
+        fake.active.title = "SynthetischFalschesBlatt"
+        fake.close = Mock(wraps=fake.close)
         with patch("egid_match.zuordnung.store.load_workbook", return_value=fake), self.assertRaises(ReviewError):
             read_review_excel(path)
         fake.close.assert_called_once()

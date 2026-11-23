@@ -1,6 +1,7 @@
 """Persistenz und Excel für das lokale manuelle Zuordnungswerkzeug."""
 
 from contextlib import contextmanager
+from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from itertools import chain
 import json
@@ -22,6 +23,8 @@ SHEET = "review_address_suffix"
 PRODUCT = "egid-match-manual-review"
 AUTOMATIC_SHEET = "Automatische Zuordnungen"
 AUTOMATIC_META = "automatic_egids"
+REVIEW_CATEGORIES = (SHEET, matching.SUFFIX_PAIR_REVIEW, matching.SUFFIX_SINGLE_REVIEW)
+MATCHING_COLUMNS = {"GVBSID", "Matching-Kategorie", "EGID", "Automatische Zuordnung", "EGID-Kandidaten"}
 
 
 def _encode(value):
@@ -87,13 +90,69 @@ def prepare_rows(headers, rows):
     return headers, prepared
 
 
-def read_automatic_egids(workbook):
+def _sheet_name(workbook, title):
+    return next((name for name in workbook.sheetnames if name.strip().casefold() == title.casefold()), None)
+
+
+def _summary_counts(headers, rows):
+    """Nur die vom Matching exportierte Kategorienbilanz als Vollständigkeitsbeleg."""
+    category_index, count_index = headers.index("Kategorie"), headers.index("Anzahl")
+    categories = {category for category, _, _ in matching.CATEGORIES}
+    counts, total = Counter(), None
+    for row in rows:
+        if len(row) <= max(category_index, count_index):
+            continue
+        category = matching.category_name(row[category_index])
+        if category not in categories and category != "Gesamt":
+            continue
+        count = row[count_index]
+        if type(count) is not int or count < 0:
+            return None
+        if category == "Gesamt":
+            if total is not None:
+                return None
+            total = count
+        else:
+            if category in counts:
+                return None
+            counts[category] = count
+    return counts if total is not None and sum(counts.values()) == total else None
+
+
+def _matching_sheet(workbook):
+    named = _sheet_name(workbook, "Matching")
+    if named is not None:
+        return named
+    candidates, summaries = [], []
+    for name in workbook.sheetnames:
+        rows = workbook[name].iter_rows(values_only=True)
+        headers = [matching.txt(value) for value in next(rows, ())]
+        if len(set(headers)) != len(headers):
+            continue
+        if MATCHING_COLUMNS <= set(headers):
+            candidates.append((name, headers.index("Matching-Kategorie")))
+        if {"Kategorie", "Anzahl"} <= set(headers):
+            counts = _summary_counts(headers, rows)
+            if counts is not None:
+                summaries.append(counts)
+    for name, index in candidates:
+        counts = Counter()
+        for row in workbook[name].iter_rows(min_row=2, values_only=True):
+            if any(value is not None for value in row):
+                counts[matching.category_name(row[index]) if len(row) > index else ""] += 1
+        if any(counts == summary for summary in summaries):
+            return name
+    return None
+
+
+def read_automatic_egids(workbook, matching_name=None):
     """Globale Sperrliste aus dem vollständigen Matching oder einem App-Export."""
     blocked = set()
     known = False
-    if "Matching" in workbook.sheetnames:
+    matching_name = matching_name if matching_name is not None else _matching_sheet(workbook)
+    if matching_name is not None:
         known = True
-        rows = workbook["Matching"].iter_rows(values_only=True)
+        rows = workbook[matching_name].iter_rows(values_only=True)
         headers = [matching.txt(value) for value in next(rows, ())]
         required = ("EGID", "Automatische Zuordnung", "Matching-Kategorie")
         if any(headers.count(name) != 1 for name in required):
@@ -102,15 +161,16 @@ def read_automatic_egids(workbook):
             fields = dict(zip(headers, row))
             egid = matching.txt(fields.get("EGID"))
             automatic = matching.txt(fields.get("Automatische Zuordnung")) == "Ja"
-            category = matching.txt(fields.get("Matching-Kategorie"))
+            category = matching.category_name(fields.get("Matching-Kategorie"))
             if not egid and not automatic and category not in matching.AUTO_CATEGORIES:
                 continue
             if not egid or not automatic or category not in matching.AUTO_CATEGORIES:
                 raise ReviewError("Das Blatt Matching enthält eine widersprüchliche automatische EGID-Zuordnung.")
             blocked.add(egid_text(egid))
-    if AUTOMATIC_SHEET in workbook.sheetnames:
+    automatic_name = _sheet_name(workbook, AUTOMATIC_SHEET)
+    if automatic_name is not None:
         known = True
-        rows = workbook[AUTOMATIC_SHEET].iter_rows(values_only=True)
+        rows = workbook[automatic_name].iter_rows(values_only=True)
         if tuple(next(rows, ())) != ("EGID",):
             raise ReviewError("Das Blatt Automatische Zuordnungen benötigt genau die Spalte EGID.")
         for row in rows:
@@ -122,21 +182,48 @@ def read_automatic_egids(workbook):
 def read_review_excel(path):
     workbook = load_workbook(path, read_only=True, data_only=False)
     try:
-        sheets = [name for name in (SHEET, matching.SUFFIX_PAIR_REVIEW, matching.SUFFIX_SINGLE_REVIEW)
-                  if name in workbook.sheetnames]
-        if not sheets:
-            raise ReviewError("Die Excel-Datei enthält kein Adress-Suffix-Prüffallblatt "
-                              "(review_address_suffix, address_suffix_pair_lt4 oder review_suffix_single_building).")
-        headers, row_sets = None, []
-        for name in sheets:
-            rows = workbook[name].iter_rows(values_only=True)
-            sheet_headers = tuple(next(rows, ()))
-            if headers is not None and headers != sheet_headers:
-                raise ReviewError("Die Prüffallblätter müssen dieselben Spalten enthalten.")
-            headers = sheet_headers
-            row_sets.append(rows)
-        headers, prepared = prepare_rows(headers, chain.from_iterable(row_sets))
-        return headers, prepared, read_automatic_egids(workbook)
+        matching_name = _matching_sheet(workbook)
+        matching_rows, matching_headers = None, ()
+        if matching_name is not None:
+            matching_rows = workbook[matching_name].iter_rows(values_only=True)
+            matching_headers = tuple(next(matching_rows, ()))
+        names = [matching.txt(value) for value in matching_headers]
+        headers, values = None, []
+        # Ein vollständiges Gesamtblatt enthält auch Fälle fehlender Kategorieblätter.
+        if not MATCHING_COLUMNS <= set(names):
+            accepted = {name.strip().casefold() for category in REVIEW_CATEGORIES
+                        for name in (category, category[:31], matching.CATEGORY_SHEET_TITLES.get(category, category))}
+            accepted.update(alias.casefold() for alias, category in matching.CATEGORY_ALIASES.items()
+                            if category in REVIEW_CATEGORIES)
+            row_sets = []
+            for name in workbook.sheetnames:
+                if name.strip().casefold() not in accepted:
+                    continue
+                rows = workbook[name].iter_rows(values_only=True)
+                sheet_headers = tuple(next(rows, ()))
+                if headers is not None and headers != sheet_headers:
+                    raise ReviewError("Die Prüffallblätter müssen dieselben Spalten enthalten.")
+                headers = sheet_headers
+                row_sets.append(rows)
+            values = list(chain.from_iterable(row_sets))
+        if not any(any(value is not None for value in row) for row in values):
+            if matching_name is None:
+                raise ReviewError("Kein importierbarer GVBSID-Matching-Bestand erkannt. Bitte die vollständige "
+                                  "Matching-Arbeitsmappe oder einen Zuordnungsapp-Export laden. Ein umbenanntes "
+                                  "Gesamtblatt benötigt die exportierten Matching-Spalten und eine passende "
+                                  "Kategorie-Zusammenfassung mit Gesamtzahl.")
+            headers = matching_headers
+            if names.count("Matching-Kategorie") != 1:
+                raise ReviewError("Für den Prüffallimport aus dem Gesamtblatt wird genau eine "
+                                  "Spalte Matching-Kategorie benötigt.")
+            index = names.index("Matching-Kategorie")
+            values = [row for row in matching_rows if len(row) > index
+                      and matching.category_name(row[index]) in REVIEW_CATEGORIES]
+            if not values:
+                raise ReviewError("Das Gesamtblatt enthält keine Adress-Suffix-Prüffälle. "
+                                  "Automatisch zugeteilte Fälle werden nicht als Prüffälle importiert.")
+        headers, prepared = prepare_rows(headers, values)
+        return headers, prepared, read_automatic_egids(workbook, matching_name)
     finally:
         workbook.close()
 

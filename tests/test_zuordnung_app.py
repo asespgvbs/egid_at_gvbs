@@ -167,6 +167,92 @@ class AppTests(SyntheticMemory):
         self.assertEqual(self.client.get("/api/state").json["unassigned_count"], 3)
         self.fetch.assert_not_called()
 
+    def test_assignment_counts_without_database_or_records_are_zero(self):
+        expected = {ratio: {"total": 0, "unassigned": 0} for ratio in ("all", "equal", "different")}
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], expected)
+        self.database = self.empty_store(self.folder / "synthetic-empty.sqlite")
+        self.select()
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], expected)
+        self.fetch.assert_not_called()
+
+    def test_assignment_counts_follow_ratio_but_ignore_queue_status(self):
+        values = [list(row) for row in VALUES]
+        values[0][6] = "102,104"  # Pakete 2:3 und 1:1.
+        self.database.import_rows(HEADERS, values)
+        self.database.save([
+            {"gvbsid": "SYNTHETIC-1", "version": 2, "status": "Abgeschlossen", "assigned": ["101", "102"]},
+            {"gvbsid": "SYNTHETIC-2", "version": 2, "status": "Sonderfall", "assigned": []},
+            {"gvbsid": "SYNTHETIC-3", "version": 2, "status": "Keine Zuordnung möglich", "assigned": []},
+        ], {"101", "102"})
+        self.select(activate=True)
+        expected = {"all": {"total": 3, "unassigned": 2}, "equal": {"total": 1, "unassigned": 1},
+                    "different": {"total": 2, "unassigned": 1}}
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], expected)
+        for view in ("open", "special", "completed"):
+            for ratio in expected:
+                response = self.client.get("/api/queue", query_string={"view": view, "ratio": ratio})
+                self.assertEqual(response.json["assignment_counts"], expected)
+        self.fetch.assert_not_called()
+        self.gwr_addresses.assert_not_called()
+        self.gwr_volumes.assert_not_called()
+
+    def test_assignment_counts_update_after_saving_or_removing_assignments(self):
+        self.select(activate=True)
+        response = self.post("/api/save", self.decision(assigned=["101", "102"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["assignment_counts"], {
+            "all": {"total": 3, "unassigned": 2}, "equal": {"total": 3, "unassigned": 2},
+            "different": {"total": 0, "unassigned": 0}})
+        response = self.post("/api/save", self.decision("Sonderfall", [], version=2))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["assignment_counts"]["equal"], {"total": 3, "unassigned": 3})
+        self.fetch.assert_not_called()
+
+    def test_assignment_counts_deduplicate_shared_gvbsids_within_each_ratio(self):
+        values = [list(row) for row in VALUES]
+        values[1][7] = "CH-SYNTHETIC-1, CH-SYNTHETIC-2, CH-SYNTHETIC-3"
+        values[2][7] = "CH-SYNTHETIC-2, CH-SYNTHETIC-3"
+        values.append(["SYNTHETIC-4", *VALUES[0][1:5], "104", "", "CH-SYNTHETIC-1", ""])
+        self.database.import_rows(HEADERS, values)
+        self.select(activate=True)
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"]["equal"],
+                         {"total": 4, "unassigned": 4})
+        values[0][6] = "102,105"
+        self.database.import_rows(HEADERS, values)
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], {
+            "all": {"total": 4, "unassigned": 4}, "equal": {"total": 2, "unassigned": 2},
+            "different": {"total": 3, "unassigned": 3}})
+        self.fetch.assert_not_called()
+
+    def test_assignment_counts_include_packages_without_egid(self):
+        values = [list(row) for row in VALUES]
+        values[2][5:8] = ["", "", ""]
+        self.database.import_rows(HEADERS, values)
+        self.select(activate=True)
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], {
+            "all": {"total": 3, "unassigned": 3}, "equal": {"total": 2, "unassigned": 2},
+            "different": {"total": 1, "unassigned": 1}})
+        self.fetch.assert_not_called()
+
+    def test_assignment_counts_follow_cached_geodata_and_expiry(self):
+        self.select(activate=True)
+        self.app.session.geo_cache["SYNTHETIC-1"] = {
+            "package_id": "egrid:CH-SYNTHETIC-1", "sources": {}, "parcels": [],
+            "buildings": [{"egid": "999", "egrid": "CH-SYNTHETIC-1", "assignable": True}]}
+        expected = {"all": {"total": 3, "unassigned": 3}, "equal": {"total": 1, "unassigned": 1},
+                    "different": {"total": 2, "unassigned": 2}}
+        for ratio, total in (("equal", 1), ("different", 2)):
+            response = self.client.get("/api/queue", query_string={"ratio": ratio})
+            self.assertEqual(response.json["assignment_counts"], expected)
+            self.assertEqual(sum(row["gvbsid_count"] for row in response.json["records"]), total)
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], expected)
+        self.app.session.geo_cache["SYNTHETIC-1"]["sources"] = {"buildings": {
+            "code": "complete", "fetched_at": (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()}}
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], {
+            "all": {"total": 3, "unassigned": 3}, "equal": {"total": 3, "unassigned": 3},
+            "different": {"total": 0, "unassigned": 0}})
+        self.fetch.assert_not_called()
+
     def test_status_queue_search_and_reopening_completed_cases(self):
         self.select(activate=True)
         response = self.post("/api/save", self.decision())
@@ -252,6 +338,9 @@ class AppTests(SyntheticMemory):
         case = self.app.session.case("SYNTHETIC-1")
         self.assertIn("101", case["egids"])
         self.assertIn("101", case["blocked_egids"])
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], {
+            "all": {"total": 5, "unassigned": 5}, "equal": {"total": 5, "unassigned": 5},
+            "different": {"total": 0, "unassigned": 0}})
 
     def test_ratio_includes_saved_assignments_outside_imported_candidates(self):
         self.database.save([{"gvbsid": "SYNTHETIC-1", "version": 1, "status": "Offen", "assigned": ["999"]}], {"999"})
@@ -260,6 +349,9 @@ class AppTests(SyntheticMemory):
         self.assertEqual([(row["egrid"], row["gvbsid_count"], row["egid_count"]) for row in rows],
                          [("CH-SYNTHETIC-1", 2, 3)])
         self.assertIn("999", self.app.session.case("SYNTHETIC-1")["egids"])
+        self.assertEqual(self.client.get("/api/state").json["assignment_counts"], {
+            "all": {"total": 3, "unassigned": 2}, "equal": {"total": 1, "unassigned": 1},
+            "different": {"total": 2, "unassigned": 1}})
 
     def test_ratio_without_egid_is_unequal(self):
         values = list(VALUES[2])
@@ -739,12 +831,13 @@ class AppTests(SyntheticMemory):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
     def test_page_uses_matching_palette_for_category_theme(self):
-        from egid_match.matching import CATEGORY_COLORS
+        from egid_match.matching import CATEGORY_ALIASES, CATEGORY_COLORS, SUFFIX_SINGLE_REVIEW
         response = self.client.get("/")
         config_text = response.text.split('<script id="review-config" type="application/json">', 1)[1].split("</script>", 1)[0]
         config = json.loads(config_text)
         self.assertEqual(config["category_colors"], CATEGORY_COLORS)
-        self.assertEqual(config["category_colors"]["review_suffix_single_building"], "E6C200")
+        self.assertEqual(config["category_colors"][SUFFIX_SINGLE_REVIEW], "E6C200")
+        self.assertEqual(config["category_aliases"], CATEGORY_ALIASES)
         self.assertEqual(config["category_colors"]["address_suffix_pair_ge4"], "C4A484")
         self.assertIn('id="case-category"', response.text)
 

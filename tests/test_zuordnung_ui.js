@@ -31,9 +31,9 @@ async function runReviewUiTest(sources) {
   const elements = Object.fromEntries([...sources["src/egid_match/zuordnung/templates/zuordnung.html"].matchAll(/\bid="([\w-]+)"/g)].map(match => [match[1], new Element()]));
   elements["review-config"].textContent = JSON.stringify({token: "synthetic-token", category_colors: {
     review_address_suffix: "FFF2CC", address_suffix_pair_lt4: "F4B183",
-    review_suffix_single_building: "E6C200", address_suffix_pair_ge4: "C4A484",
+    review_suffix_single_gvbsid_multiple_egid: "E6C200", address_suffix_pair_ge4: "C4A484",
     synthetic_invalid: "url(https://synthetic.invalid/colour)",
-  }});
+  }, category_aliases: {review_suffix_single_building: "review_suffix_single_gvbsid_multiple_egid"}});
   elements["case-content"].append(elements.matrix);
   const document = {body: new Element("body"), documentElement: new Element("html"), createElement: tag => new Element(tag), getElementById(id) {if (!elements[id]) throw new Error("Unbekannte DOM-ID"); return elements[id];}, addEventListener() {}};
   const window = {addEventListener() {}, setTimeout() {return 1;}, clearTimeout() {}, innerWidth: 1200, innerHeight: 800, requestAnimationFrame(callback) {callback();}};
@@ -60,7 +60,7 @@ async function runReviewUiTest(sources) {
   const source = sources["src/egid_match/zuordnung/static/zuordnung.js"].replace(/\r\n/g, "\n");
   const startup = source.lastIndexOf('\naction(async () => {\n  const initial = await api("/api/state");');
   check(startup > 0, "Automatischen Anwendungsstart für den isolierten Test abtrennen");
-  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){packageNotice.reset();current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:200},unassigned_count:123};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
+  const ui = new Function("document", "window", "fetch", "ReviewEgidPoints", "L", source.slice(0, startup) + "\nreturn {renderCase,renderGeo,selectEgid,applyState,packageNavigation,decisionPayload,changed,switchQueueView,switchQueueRatio,queueRequestPath,showEmptyQueue,refreshQueue,loadGeo,applyGeoCase,configure(value,view,layers,items,filter='open',ratio='all'){packageNotice.reset();current=value;selectedEgid=null;sizeGuidesShown=true;dirty.clear();queueView=filter;queueRatio=ratio;document.getElementById('queue-view').value=filter;document.getElementById('queue-ratio').value=ratio;state={database:'synthetic',active:true,progress:{total:200},unassigned_count:123,assignment_counts:{all:{total:200,unassigned:123},equal:{total:40,unassigned:23},different:{total:160,unassigned:100}}};queue=items||[{gvbsid:value.selected}];map=view;mapLayers=layers;}};")(document, window, (...args) => {if (syntheticApi) return syntheticApi(...args); apiCalls++; throw new Error("Externe Zugriffe verboten");}, points, L);
   const value = {
     selected: "SYNTHETIC-1", egrids: ["CH-SYNTHETIC-1"], egids: ["101", "102"],
     automatic_assignments_loaded: true, blocked_egids: [], assignable_egids: ["101", "102"],
@@ -89,7 +89,7 @@ async function runReviewUiTest(sources) {
     "Während der Einrichtung die benötigte Bedienleiste beim Verlassen sichtbar lassen");
   ui.configure(value, map, layers); ui.renderCase();
   check(ui.queueRequestPath() === "/api/queue?view=open&ratio=all", "Standardauswahl kombiniert offene Warteliste mit allen Verhältnissen");
-  check(elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID" && elements["queue-scope"].hidden,
+  check(elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID · Alle Verhältnisse" && elements["queue-scope"].hidden,
     "Gesamtzahl ohne gespeicherte EGID statt Paketnummer anzeigen, auch wenn nur ein Paket geöffnet ist");
   check(!elements["queue-ratio"].disabled, "Verhältnisfilter bei aktiver Bearbeitung freischalten");
   const markup = sources["src/egid_match/zuordnung/templates/zuordnung.html"];
@@ -159,12 +159,21 @@ async function runReviewUiTest(sources) {
   ui.configure(unavailable, map, layers);
   ui.renderGeo();
   check(elements["egid-details"].textContent.includes("Keine Parzellengrenze verfügbar.") && elements["egid-details"].textContent.includes("Synthetischer Geometriefehler"), "Fehlende Quellgeometrie im vorhandenen Detailfeld erklären");
-  for (const [category, colour] of [["address_suffix_pair_lt4", "#F4B183"], ["review_suffix_single_building", "#E6C200"], ["address_suffix_pair_ge4", "#C4A484"]]) {
+  for (const [category, colour] of [["address_suffix_pair_lt4", "#F4B183"], ["review_suffix_single_gvbsid_multiple_egid", "#E6C200"], ["address_suffix_pair_ge4", "#C4A484"]]) {
     ui.configure({...value, records: [{...value.records[0], raw: {"Matching-Kategorie": category}}]}, map, layers);
     ui.renderCase();
     check(elements["left-pane"].style.getPropertyValue("--category-color") === colour, "Fallwechsel übernimmt die neue Kategoriefarbe");
     check(elements["case-category"].title === category, "Importierte Kategorie im Kategorienhinweis erhalten");
   }
+  const legacyCategoryRecords = ["review_suffix_single_building", "review_suffix_single_gvbsid_multiple_egid"].map(
+    category => ({...value.records[0], raw: {"Matching-Kategorie": category}}));
+  ui.configure({...value, records: legacyCategoryRecords}, map, layers); ui.renderCase();
+  check(elements["case-category"].title === "review_suffix_single_gvbsid_multiple_egid" &&
+    elements["case-category"].textContent === "Eine GVBSID mit mehreren EGIDs · Manuell prüfen" &&
+    elements["left-pane"].style.getPropertyValue("--category-color") === "#E6C200",
+    "Alte und neue Kategorie erhalten dieselbe Beschriftung und Farbe");
+  check(legacyCategoryRecords[0].raw["Matching-Kategorie"] === "review_suffix_single_building",
+    "Die Anzeige erhält die importierte Originalkategorie");
   const mixed = {...value, selected: "SYNTHETIC-2", records: [
     {...value.records[0], raw: {"Matching-Kategorie": "review_suffix_single_building"}},
     {...value.records[0], gvbsid: "SYNTHETIC-2", raw: {"Matching-Kategorie": "address_suffix_pair_lt4"}},
@@ -239,7 +248,7 @@ async function runReviewUiTest(sources) {
   ui.configure({...value, records: [{...value.records[0], status: "Abgeschlossen"}]}, map, layers); ui.renderCase();
   check(elements.save.disabled && !elements.special.disabled, "Abgeschlossenen Fall als Sonderfall umtaggen können");
   ui.configure(value, map, layers, [], "special", "different"); ui.showEmptyQueue();
-  check(elements["case-title"].textContent.includes("Sonderfälle") && elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Auch bei leerer Sonderfallwarteliste die globale Anzahl unzugeteilter GVBSIDs anzeigen");
+  check(elements["case-title"].textContent.includes("Sonderfälle") && elements["queue-position"].textContent === "Noch 100 von 160 GVBSIDs ohne EGID · ungleich 1:1", "Auch bei leerer Sonderfallwarteliste die Anzahl der gewählten Verhältnisgruppe anzeigen");
   check(elements["empty-note"].textContent.includes("ungleich 1:1"), "Bei leerer Auswahl auch den aktiven Verhältnisfilter erklären");
   check(ui.queueRequestPath() === "/api/queue?view=special&ratio=different", "Verhältnisfilter mit der gewählten Warteliste kombinieren");
   check(sources["src/egid_match/zuordnung/templates/zuordnung.html"].includes('id="special" class="danger"'), "Sonderfall-Knopf erhält die rote Darstellung");
@@ -254,7 +263,7 @@ async function runReviewUiTest(sources) {
     const navigation = ui.packageNavigation();
     check(navigation.next === "SYNTHETIC-3" && navigation.previous === null, "Weiter überspringt alle Mitglieder des aktuellen Pakets, auch bei verstreuten Warteschlangeneinträgen");
     check(elements.previous.disabled && !elements.next.disabled, "Am ersten Paket nur Weiter aktivieren");
-    check(elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Die globale Anzahl unzugeteilter GVBSIDs statt der Paketposition anzeigen");
+    check(elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID · Alle Verhältnisse", "Die globale Anzahl unzugeteilter GVBSIDs statt der Paketposition anzeigen");
   }
   ui.configure({...value, selected: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2}, map, layers, packageQueue);
   ui.renderCase();
@@ -262,7 +271,7 @@ async function runReviewUiTest(sources) {
   check(!elements.previous.disabled && elements.next.disabled, "Am letzten Paket nur Zurück aktivieren");
   ui.configure({...value, selected: "SYNTHETIC-3", package_id: "SYNTHETIC-3", package_index: 2}, map, layers,
     [packageQueue[1]], "open", "equal"); ui.renderCase();
-  check(elements.previous.disabled && elements.next.disabled && elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Navigation berücksichtigt ausschliesslich die gefilterten Pakete; der Gesamtzähler bleibt unverändert");
+  check(elements.previous.disabled && elements.next.disabled && elements["queue-position"].textContent === "Noch 23 von 40 GVBSIDs ohne EGID · Nur 1:1", "Navigation und Zähler berücksichtigen den Verhältnisfilter; der Zähler bleibt unabhängig von der Warteliste");
   ui.configure({...value, package_id: "egrid:SYNTHETIC-A", package_index: 0}, map, layers, [
     {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-A", package_index: 0},
     {gvbsid: "SYNTHETIC-1", package_id: "egrid:SYNTHETIC-B", package_index: 1},
@@ -419,10 +428,16 @@ async function runReviewUiTest(sources) {
     [["Peterstrasse", "23", "0000"], ["Rolfstrasse", "14", "0000"], true],
     [["Singstrasse", "2", "0000"], ["Singstrasse", "2.1", "0000"], false],
     [["Singstrasse", "2.1", "0000"], ["Singstrasse", "2.2", "0000"], false],
-    [[" SINGSTRASSE ", "02a", "0000"], ["Singstrasse", "2b", "0000"], false],
+    [[" SINGSTRASSE ", "02a", "0000"], ["Singstrasse", "2b", "0000"], true],
+    [["Singstrasse", "30", "0000"], ["Singstrasse", "30A", "0000"], true],
+    [["Singstrasse", "30a", "0000"], ["Singstrasse", "30B", "0000"], true],
+    [["Singstrasse", "30A", "0000"], ["Singstrasse", "30a", "0000"], false],
+    [["Singstrasse", "30A", "0000"], ["Singstrasse", "30A.1", "0000"], false],
+    [["Singstrasse", "30A.1", "0000"], ["Singstrasse", "30B.1", "0000"], true],
+    [["Singstrasse", "30.3", "0000"], ["Singstrasse", "30.4", "0000"], false],
     [["Singstrasse", "2", "0000"], ["Singstrasse", "20", "0000"], true],
     [["Singstrasse", "2", "0000"], ["Singstrasse", "2/4", "0000"], true],
-    [["Singstrasse", "2", "0000"], ["Singstrasse", "2a", ""], false],
+    [["Singstrasse", "2", "0000"], ["Singstrasse", "2a", ""], true],
     [["Singstrasse", "2", "0000"], ["Singstrasse", "2", "1111"], true],
     [["Singstrasse", "2", "0000"], ["", "", ""], false],
   ];
@@ -441,7 +456,9 @@ async function runReviewUiTest(sources) {
   }
   const rawGvbsCases = [
     [{Strasse: "Singstrasse", Hausnummer: 2, "Hausnummer Zusatz": "a", Postleitzahl: "0000"},
-      {Strasse: "Singstrasse", Hausnummer: "2.1", Postleitzahl: "0000"}, false],
+      {Strasse: "Singstrasse", Hausnummer: "2.1", Postleitzahl: "0000"}, true],
+    [{Strassennamen: "Singstrasse", "Nr.": 30, "Hausnummer Zusatz": "A", PLZ: "0000"},
+      {Strassennamen: "Singstrasse", "Nr.": 30, "Hausnummer Zusatz": "B", PLZ: "0000"}, true],
     [{Strassennamen: "Singstrasse", "Nr.": 2, PLZ: "0000"}, {Strassennamen: "Singstrasse", "Nr.": 4, PLZ: "0000"}, true],
     [{Suchadresse: "Peterstrasse 23,0000"}, {Suchadresse: "Rolfstrasse 14, 0000"}, true],
     [{"GVBS-Adresse": "Singstrasse 2 0000 Basel"}, {"GVBS-Adresse": "Singstrasse 2.1, 0000 Basel"}, false],
@@ -646,7 +663,9 @@ async function runReviewUiTest(sources) {
   syntheticApi = async path => {
     requests.push(path);
     const response = path === "/api/geo" ? refreshed.geo : path.startsWith("/api/case?") ? refreshed :
-      path === "/api/queue?view=open&ratio=equal" ? {records: []} : null;
+      path === "/api/queue?view=open&ratio=equal" ? {records: [], assignment_counts: {
+        all: {total: 2, unassigned: 2}, equal: {total: 0, unassigned: 0}, different: {total: 2, unassigned: 2}
+      }} : null;
     if (!response) throw new Error("Unerwartete synthetische Anfrage");
     return {ok: true, json: async () => response};
   };
@@ -654,7 +673,7 @@ async function runReviewUiTest(sources) {
   check(requests.length === 3 && requests[2] === "/api/queue?view=open&ratio=equal", "Nachgeladenen Geodaten folgt eine Aktualisierung der gefilterten Liste");
   check(elements["case-title"].textContent === "EGRID CH-SYNTHETIC-1" && !elements["case-content"].hidden,
     "Nicht mehr passendes geöffnetes Paket bleibt nach dem Nachladen sichtbar");
-  check(!elements["queue-scope"].hidden && elements["queue-position"].textContent === "Noch 123 von 200 GVBSIDs ohne EGID", "Entferntes Paket separat als ausserhalb der Auswahl kennzeichnen und den Gesamtzähler erhalten");
+  check(!elements["queue-scope"].hidden && elements["queue-position"].textContent === "Noch 0 von 0 GVBSIDs ohne EGID · Nur 1:1", "Nach Geodatenänderung beide Zahlen des Verhältnisfilters aktualisieren und das geöffnete Paket als ausserhalb der Auswahl kennzeichnen");
   check(elements["case-counts"].textContent === "(2 GVBSID/3 EGID)" && elements.previous.disabled && elements.next.disabled,
     "Nach dem Nachladen neue Matrixanzahlen und gefilterte Navigation verwenden");
   check(ui.decisionPayload("Abgeschlossen").decisions[0].comment === "Synthetische ungespeicherte Bearbeitung" && !elements.dirty.hidden,
@@ -673,8 +692,37 @@ async function runReviewUiTest(sources) {
   await ui.switchQueueRatio("equal");
   check(ui.queueRequestPath() === "/api/queue?view=special&ratio=equal" && elements["queue-view"].value === "special",
     "Erfolgreicher Verhältniswechsel behält den Wartelistenstatus");
+  check(elements["queue-position"].textContent === "Noch 23 von 40 GVBSIDs ohne EGID · Nur 1:1",
+    "Beim Verhältniswechsel verbleibende Anzahl und Gesamtzahl der gewählten Gruppe verwenden");
   check(elements["empty-note"].textContent.includes("Nur 1:1") && elements["case-content"].hidden,
     "Erfolgreicher Filterwechsel zeigt die zugehörige leere Auswahl");
+  syntheticApi = null;
+
+  for (const [ratio, text] of [
+    ["all", "Noch 123 von 200 GVBSIDs ohne EGID · Alle Verhältnisse"],
+    ["equal", "Noch 23 von 40 GVBSIDs ohne EGID · Nur 1:1"],
+    ["different", "Noch 100 von 160 GVBSIDs ohne EGID · ungleich 1:1"],
+  ]) {
+    for (const view of ["open", "special", "completed"]) {
+      ui.configure(value, map, layers, [], view, ratio); ui.showEmptyQueue();
+      check(elements["queue-position"].textContent === text,
+        "Zähler je Verhältnisgruppe bleibt auch bei leerer oder anderer Warteliste unverändert");
+    }
+  }
+  ui.configure(value, map, layers, [], "open", "equal");
+  ui.applyState({database: "synthetic", active: true, progress: {total: 200}, unassigned_count: 123});
+  check(elements["queue-position"].textContent === "Anzahl ohne EGID nicht verfügbar",
+    "Fehlende Teilgruppenzahlen nicht durch die globale Anzahl ersetzen");
+  ui.applyState({database: "synthetic", active: true, progress: {total: 200}, unassigned_count: 123,
+    assignment_counts: {equal: {total: 40, unassigned: 22}}});
+  check(elements["queue-position"].textContent === "Noch 22 von 40 GVBSIDs ohne EGID · Nur 1:1",
+    "Gespeicherte Änderungen aktualisieren auch die aktive Verhältnisgruppe sofort");
+  syntheticApi = async () => {throw new Error("Synthetisch fehlgeschlagener Filterwechsel");};
+  let failedFilter = false;
+  try {await ui.switchQueueRatio("different");} catch (_) {failedFilter = true;}
+  check(failedFilter && elements["queue-ratio"].value === "equal" &&
+    elements["queue-position"].textContent === "Noch 22 von 40 GVBSIDs ohne EGID · Nur 1:1",
+    "Fehlgeschlagener Filterwechsel stellt Auswahl und Zähler wieder her");
   syntheticApi = null;
 
   ui.configure(value, map, layers); ui.renderCase();
@@ -689,23 +737,23 @@ async function runReviewUiTest(sources) {
   ui.configure({...value, records: [unsavedCountRecord]}, map, layers); ui.applyState(countState(3)); ui.renderCase();
   const unsavedCountInput = elements.matrix.children[0].children[1].children[0].children[1].children[0];
   unsavedCountInput.checked = true; unsavedCountInput.events.change();
-  check(elements["queue-position"].textContent === "Noch 3 von 3 GVBSIDs ohne EGID" && !elements.dirty.hidden,
+  check(elements["queue-position"].textContent === "Noch 3 von 3 GVBSIDs ohne EGID · Alle Verhältnisse" && !elements.dirty.hidden,
     "Ungespeicherte Checkboxänderungen verändern den Zähler nicht");
   ui.applyState(countState(2));
-  check(elements["queue-position"].textContent === "Noch 2 von 3 GVBSIDs ohne EGID", "Ein aktualisierter gespeicherter Stand aktualisiert den Zähler sofort");
+  check(elements["queue-position"].textContent === "Noch 2 von 3 GVBSIDs ohne EGID · Alle Verhältnisse", "Ein aktualisierter gespeicherter Stand aktualisiert den Zähler sofort");
   ui.applyState(countState(1));
-  check(elements["queue-position"].textContent === "Noch 1 von 3 GVBSIDs ohne EGID", "Bei einer verbleibenden GVBSID die ursprüngliche Gesamtzahl erhalten");
+  check(elements["queue-position"].textContent === "Noch 1 von 3 GVBSIDs ohne EGID · Alle Verhältnisse", "Bei einer verbleibenden GVBSID die ursprüngliche Gesamtzahl erhalten");
   ui.applyState(countState(0));
-  check(elements["queue-position"].textContent === "Noch 0 von 3 GVBSIDs ohne EGID", "Null verbleibende Zuteilungen eindeutig anzeigen");
+  check(elements["queue-position"].textContent === "Noch 0 von 3 GVBSIDs ohne EGID · Alle Verhältnisse", "Null verbleibende Zuteilungen eindeutig anzeigen");
   ui.showEmptyQueue();
-  check(elements["queue-position"].textContent === "Noch 0 von 3 GVBSIDs ohne EGID" && elements["queue-scope"].hidden,
+  check(elements["queue-position"].textContent === "Noch 0 von 3 GVBSIDs ohne EGID · Alle Verhältnisse" && elements["queue-scope"].hidden,
     "Auch ohne geöffnetes Paket die Gesamtzahl anzeigen und den Hinweis ausserhalb der Auswahl ausblenden");
   ui.applyState(countState(undefined));
   check(elements["queue-position"].textContent === "Anzahl ohne EGID nicht verfügbar", "Fehlende Zählerdaten nicht als null verbleibende GVBSIDs darstellen");
   ui.applyState({...countState(1), progress: {total: 1}});
-  check(elements["queue-position"].textContent === "Noch 1 von 1 GVBSID ohne EGID", "Bei insgesamt einer GVBSID die Einzahl verwenden");
+  check(elements["queue-position"].textContent === "Noch 1 von 1 GVBSID ohne EGID · Alle Verhältnisse", "Bei insgesamt einer GVBSID die Einzahl verwenden");
   ui.applyState({...countState(0), progress: {total: 0}});
-  check(elements["queue-position"].textContent === "Noch 0 von 0 GVBSIDs ohne EGID", "Eine leere Gesamtmenge eindeutig anzeigen");
+  check(elements["queue-position"].textContent === "Noch 0 von 0 GVBSIDs ohne EGID · Alle Verhältnisse", "Eine leere Gesamtmenge eindeutig anzeigen");
   ui.applyState({...countState(1), progress: {}});
   check(elements["queue-position"].textContent === "Anzahl ohne EGID nicht verfügbar", "Fehlende Gesamtzahl nicht durch die Paketanzahl ersetzen");
   ui.applyState({...countState(0), active: false});

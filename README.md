@@ -118,8 +118,9 @@ und lösen gegenüber `30` keinen Suffix-Prüffall aus.
 Adress-Suffix-Fälle werden zusätzlich als Paare geprüft: Eine Kontrollnummer muss
 im gesamten Import **genau zweimal** vorkommen, mit Gebäudenummer **0 und 1** an
 derselben Hauptadresse. Die Haupt-EGID und genau eine zusätzliche EGID mit
-Hausnummer **`.1`** müssen auf derselben EGRID eindeutig sein. Weitere Suffix-EGIDs
-oder konkurrierende GVBSIDs verhindern die Paarregel.
+Hausnummer **`.1`** müssen auf derselben EGRID eindeutig sein. Weitere numerische
+Suffix-EGIDs verhindern die Paarregel auch dann, wenn sie eine eigene GVBSID haben.
+Konkurrierende GVBSIDs verhindern die Paarregel ebenfalls.
 
 Die Spalte **`Kubatur`** bestimmt das Verhältnis `Kubatur 0 / Kubatur 1`:
 
@@ -145,14 +146,14 @@ vor der zusätzlichen Paarprüfung lautet:
 | 3 | `multiple_egid` | Nein |
 | 4 | `multiple_gvbsid_multiple_egid` | Nein |
 | 5 | `invalid_gwr_data` | Nein |
-| 6 | `review_suffix_single_building` | Nein |
+| 6 | `review_suffix_single_gvbsid_multiple_egid` | Nein |
 | 7 | `review_address_suffix` | Nein |
 | 8 | `perfect_match` | Ja |
 | 9 | `super_match` | Ja |
 | 10 | `oneEgid_oneAddress_multipleGVBSIDs` | Ja |
 | 11 | `oneEgid_multipleAddresses_multipleGVBSIDs` | Ja |
 
-**`review_suffix_single_building`** (dunkelgelb, `#E6C200`) erfasst eine Hauptadresse mit genau
+**`review_suffix_single_gvbsid_multiple_egid`** (dunkelgelb, `#E6C200`) erfasst eine Hauptadresse mit genau
 einer Importzeile `Kontrollnummer-0`. Diese Kontrollnummer darf im gesamten Import
 kein weiteres Mal vorkommen, auch nicht mit Gebäudenummer 1 an einer anderen
 Adresse. Der eindeutige Hauptadress-Treffer hat auf derselben EGRID eine oder
@@ -161,6 +162,9 @@ importiert wurde. Nur Punkt-Zahl-Zusätze sind zulässig; die Anzahl
 der Zusätze ist nicht begrenzt. Es erfolgt **keine automatische EGID-Zuordnung**,
 unabhängig von der Kubatur. Die Kategorie wird separat in Excel und der
 EGID-Abdeckung ausgewiesen und kann in die Zuordnungsapp importiert werden.
+Das Excel-Blatt heisst wegen der Grenze von 31 Zeichen `review_suffix_1gvbsid_n_egid`.
+Die Zuordnungsapp erkennt weiterhin den alten Namen `review_suffix_single_building`
+und zeigt beide Kategorien als **Eine GVBSID mit mehreren EGIDs · Manuell prüfen** an.
 
 Fehlende EGRID und Hausnummernzusatzkonflikte verhindern damit auch bei
 mehreren GVBSIDs eine automatische Zuordnung. `perfect_match` und
@@ -203,6 +207,7 @@ Dialogfenster geöffnet und keine Excel-Dateien geschrieben:
 .\.venv\Scripts\python.exe -I -B tests\test_file_selection.py
 .\.venv\Scripts\python.exe -I -B tests\test_egid_abdeckung.py
 .\.venv\Scripts\python.exe -I -B tests\test_suffix_pairs.py
+.\.venv\Scripts\python.exe -I -B tests\test_matching_contract.py
 .\.venv\Scripts\python.exe -I -B tests\test_package.py
 ```
 
@@ -274,7 +279,7 @@ bestimmt ausschliesslich für die Statistik diese Priorität die Hauptkategorie:
 6. `address_suffix_pair_lt4`
 7. `multiple_egid`
 8. `multiple_gvbsid_multiple_egid`
-9. `review_suffix_single_building`
+9. `review_suffix_single_gvbsid_multiple_egid`
 10. `review_address_suffix`
 11. `invalid_gwr_data`
 12. `kein direkter Adresstreffer`
