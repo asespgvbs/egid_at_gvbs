@@ -111,6 +111,10 @@ und fehlenden Treffern bleibt die EGID leer.
 Die Kategorien werden sequentiell in dieser Reihenfolge geprüft. Die erste
 zutreffende Kategorie wird vergeben; jede Zeile erhält genau eine Kategorie.
 
+Für die Suffixprüfung zählen ausschliesslich Punkt-Zahl-Zusätze wie `30.1`,
+`30.2` oder `30.12`. `30a`, `30A` und `30B` gelten als eigenständige Adressen
+und lösen gegenüber `30` keinen Suffix-Prüffall aus.
+
 Adress-Suffix-Fälle werden zusätzlich als Paare geprüft: Eine Kontrollnummer muss
 im gesamten Import **genau zweimal** vorkommen, mit Gebäudenummer **0 und 1** an
 derselben Hauptadresse. Die Haupt-EGID und genau eine zusätzliche EGID mit
@@ -153,7 +157,7 @@ einer Importzeile `Kontrollnummer-0`. Diese Kontrollnummer darf im gesamten Impo
 kein weiteres Mal vorkommen, auch nicht mit Gebäudenummer 1 an einer anderen
 Adresse. Der eindeutige Hauptadress-Treffer hat auf derselben EGRID eine oder
 mehrere zusätzliche EGIDs mit Suffixadressen, für die keine eigene GVBSID
-importiert wurde. Nummerierte und Buchstabenzusätze sind zulässig; die Anzahl
+importiert wurde. Nur Punkt-Zahl-Zusätze sind zulässig; die Anzahl
 der Zusätze ist nicht begrenzt. Es erfolgt **keine automatische EGID-Zuordnung**,
 unabhängig von der Kubatur. Die Kategorie wird separat in Excel und der
 EGID-Abdeckung ausgewiesen und kann in die Zuordnungsapp importiert werden.

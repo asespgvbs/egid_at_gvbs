@@ -102,9 +102,54 @@ class SuffixPairTests(unittest.TestCase):
                     self.assert_review(synthetic_pair(volumes))
 
     def test_other_suffixes_or_several_suffix_egids_stay_review(self):
-        for suffixes in (("12.2",), ("12a",), ("12.1", "12.2"), ("12.1", "12.1")):
+        for suffixes in (("12.2",), ("12.1", "12.2"), ("12.1", "12.1")):
             with self.subTest(suffixes=suffixes):
                 self.assert_review(synthetic_pair(suffixes=suffixes))
+
+    def test_only_dot_number_extensions_are_suffixes(self):
+        for number in ("30.1", "30.2", "30.3", "30.4", "30.12"):
+            with self.subTest(number=number):
+                self.assertTrue(matching.is_address_suffix("30", number))
+        for number in ("30a", "30A", "30B", "30ab", "30", "31", "300", "30.", "30/31", "30.1a"):
+            with self.subTest(number=number):
+                self.assertFalse(matching.is_address_suffix("30", number))
+        self.assertFalse(matching.is_address_suffix("30.1", "30"))
+
+    def test_letter_addresses_do_not_trigger_suffix_review(self):
+        for number in ("12a", "12A", "12B"):
+            for volumes, buildings, category in (
+                ((None,), (0,), "super_match"),
+                ((400, 100), (0, 1), "oneEgid_oneAddress_multipleGVBSIDs"),
+            ):
+                with self.subTest(number=number, buildings=buildings):
+                    results = self.evaluate(synthetic_pair(volumes, buildings, (number,)))
+                    for row in results:
+                        self.assertEqual(row["Matching-Kategorie"], category)
+                        self.assertEqual(row["EGID"], 900000001)
+                        self.assertEqual(row["Anzahl EGID mit Hausnummernzusatz"], 0)
+                        self.assertEqual(row["EGID mit Hausnummernzusatz"], "")
+
+    def test_letter_addresses_match_their_own_direct_egids(self):
+        fixture = synthetic_pair((None,), (0,), ("12A", "12B"))
+        base = fixture[0][0]
+        for letter in ("A", "B"):
+            fixture[0].append({**base, "Kontrollnummer": "SYNTHETIC-" + letter,
+                               "Hausnummer Zusatz": letter})
+        results = self.evaluate(fixture)
+        self.assertEqual([row["EGID"] for row in results], [900000001, 900000002, 900000003])
+        self.assertTrue(all(row["Matching-Kategorie"] == "super_match" for row in results))
+        self.assertTrue(all(row["Anzahl EGID mit Hausnummernzusatz"] == 0 for row in results))
+
+    def test_letter_addresses_do_not_prevent_dot_one_pair(self):
+        for volumes, category, assigned in (
+            ((400, 100), matching.SUFFIX_PAIR_AUTO, [900000001, 900000002]),
+            ((300, 100), matching.SUFFIX_PAIR_REVIEW, [None, None]),
+        ):
+            with self.subTest(category=category):
+                results = self.evaluate(synthetic_pair(volumes, suffixes=("12.1", "12a", "12B")))
+                self.assertEqual([row["EGID"] for row in results], assigned)
+                self.assertTrue(all(row["Matching-Kategorie"] == category for row in results))
+                self.assertTrue(all(row["EGID mit Hausnummernzusatz"] == "900000002" for row in results))
 
     def test_ambiguous_dot_one_candidate_outside_parcel_is_rejected(self):
         fixture = synthetic_pair()
@@ -209,7 +254,7 @@ class SuffixPairTests(unittest.TestCase):
         # Separate synthetische Parzelle verhindert Konkurrenz zum Paar.
         fixture[0][-1]["Hausnummer"] = 20
         main = matching.address("Synthetische Teststrasse", "20", "0000")
-        suffix = matching.address("Synthetische Teststrasse", "20a", "0000")
+        suffix = matching.address("Synthetische Teststrasse", "20.1", "0000")
         fixture[1].update({main: {900000003}, suffix: {900000004}})
         fixture[2].update({900000003: {main}, 900000004: {suffix}})
         fixture[3].update({900000003: {"SYNTHETIC-SECOND"}, 900000004: {"SYNTHETIC-SECOND"}})
@@ -221,7 +266,7 @@ class SuffixPairTests(unittest.TestCase):
             "SYNTHETIC-SINGLE-2", "SYNTHETIC-PAIR-0", "SYNTHETIC-PAIR-1"})
 
     def test_single_building_zero_with_one_or_multiple_suffixes_stays_unassigned(self):
-        for suffixes in (("12.1",), ("12.2",), ("12a",), ("12.1", "12.2", "12a")):
+        for suffixes in (("12.1",), ("12.2",), ("12.1", "12.2", "12.3", "12.4")):
             with self.subTest(suffixes=suffixes):
                 fixture = synthetic_pair((None,), (0,), suffixes)
                 record = self.evaluate(fixture)[0]
@@ -269,6 +314,7 @@ class SuffixPairTests(unittest.TestCase):
     def test_single_suffix_category_reaches_excel_coverage_and_manual_import(self):
         fixture = synthetic_pair((None,), (0,), ("12.1", "12a"))
         results = self.evaluate(fixture)
+        self.assertEqual(results[0]["EGID mit Hausnummernzusatz"], "900000002")
         workbook = self.workbook(fixture, results)
         category = matching.SUFFIX_SINGLE_REVIEW
         self.assertEqual(workbook[category].max_row, 2)
@@ -285,6 +331,8 @@ class SuffixPairTests(unittest.TestCase):
         self.assertEqual(statuses[abdeckung.AUTOMATIC], 0)
         self.assertEqual(statuses[abdeckung.DIRECT_ONLY], 1)
         self.assertEqual(statuses[abdeckung.NO_CANDIDATE], 2)
+        letter = next(row for row in rows if row["EGID"] == 900000003)
+        self.assertEqual(letter["Nur über Hausnummernzusatz erkannt"], "Nein")
         with patch.object(store, "load_workbook", return_value=workbook):
             _, imported, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))
         self.assertEqual([row["gvbsid"] for row in imported], ["SYNTHETIC-PAIR-0"])

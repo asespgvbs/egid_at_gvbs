@@ -95,7 +95,7 @@ CATEGORIES = [
         "An der Hauptadresse steht genau eine Importzeile mit Gebäudenummer 0. "
         "Ihre Kontrollnummer kommt im gesamten Import nur einmal vor. Es gibt "
         "einen eindeutigen direkten EGID-Treffer und auf derselben EGRID eine "
-        "oder mehrere zusätzliche EGIDs mit abgeleiteten Hausnummern, für deren "
+        "oder mehrere zusätzliche EGIDs mit Punkt-Zahl-Zusätzen (z. B. .1, .2), für deren "
         "Adressen keine eigene GVBSID im Import steht.",
         "Keine automatische EGID-Zuordnung, unabhängig von der Kubatur. Manuell prüfen.",
     ),
@@ -105,7 +105,7 @@ CATEGORIES = [
         "EGID-Adresstreffer. Auf derselben EGRID befindet sich "
         "mindestens eine weitere EGID mit derselben Strasse "
         "und PLZ sowie einer Hausnummer, die durch einen "
-        "Zusatz aus der GVBS-Hausnummer entsteht. Für diese "
+        "Punkt-Zahl-Zusatz aus der GVBS-Hausnummer entsteht. Für diese "
         "zusätzliche Adresse ist keine eigene GVBSID im "
         "eingelesenen Datensatz vorhanden.",
         "Keine automatische Zuordnung. Prüfen, ob die GVBSID "
@@ -231,8 +231,9 @@ def is_address_suffix(gvbs_number, gwr_number):
     Beispiele:
     GVBS 30 -> GWR 30.1    Ja
     GVBS 30 -> GWR 30.2    Ja
-    GVBS 30 -> GWR 30a     Ja
-    GVBS 30 -> GWR 30A     Ja
+    GVBS 30 -> GWR 30a     Nein
+    GVBS 30 -> GWR 30A     Nein
+    GVBS 30 -> GWR 30B     Nein
     GVBS 30 -> GWR 30      Nein
     GVBS 30 -> GWR 31      Nein
     GVBS 30 -> GWR 300     Nein
@@ -258,13 +259,8 @@ def is_address_suffix(gvbs_number, gwr_number):
     if not candidate.startswith(base):
         return False
     suffix = candidate[len(base):]
-    # Nummerierte Zusätze wie 30.1 oder 30.12
-    if re.fullmatch(r"\.\d+", suffix):
-        return True
-    # Buchstabenzusätze wie 30a oder 30ab
-    if re.fullmatch(r"[a-z]+", suffix):
-        return True
-    return False
+    # Nur Punkt-Zahl-Zusätze; Buchstaben gehören zur eigenständigen Adresse.
+    return re.fullmatch(r"\.\d+", suffix) is not None
 def find_address_suffix_conflicts(
     gvbs_address,
     direct_egid,
@@ -283,8 +279,8 @@ def find_address_suffix_conflicts(
     erfasst, wenn:
     1. Sie auf einer EGRID der direkten EGID liegt.
     2. Ihre GWR-Adresse dieselbe Strasse und PLZ hat.
-    3. Ihre Hausnummer eine Erweiterung der
-       GVBS-Hausnummer ist.
+    3. Ihre Hausnummer die GVBS-Hausnummer mit
+       einem Punkt-Zahl-Zusatz wie .1 oder .2 ist.
     4. Für ihre GWR-Adresse keine eigene GVBSID
        im eingelesenen Datensatz existiert.
     Rückgabe:
@@ -1132,7 +1128,7 @@ def save_excel(path, headers, results, records):
         "EGID-Adresstreffer werden weitere EGIDs "
         "auf denselben EGRIDs untersucht. "
         "Bei gleicher Strasse und PLZ sowie einer "
-        "Hausnummer mit Zusatz wird geprüft, ob "
+        "Hausnummer mit Punkt-Zahl-Zusatz wird geprüft, ob "
         "für diese zusätzliche GWR-Adresse eine "
         "eigene GVBSID im eingelesenen Datensatz "
         "vorhanden ist.",
@@ -1141,9 +1137,9 @@ def save_excel(path, headers, results, records):
     ])
     notes.append([
         "Hausnummernzusätze",
-        "Erkannt werden nummerierte Zusätze wie "
-        "30.1 oder 30.12 sowie Buchstabenzusätze "
-        "wie 30a oder 30ab. "
+        "Erkannt werden ausschliesslich Punkt-Zahl-Zusätze wie "
+        "30.1 oder 30.12. Buchstabenzusätze wie "
+        "30a, 30A oder 30B gelten als eigenständige Adressen. "
         "Nicht erkannt werden beispielsweise "
         "30/31 oder abweichende Hausnummern wie 31.",
         "",
