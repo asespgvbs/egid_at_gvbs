@@ -305,6 +305,25 @@ function gwrAddresses(building) {
   ).filter(Boolean))];
 }
 
+function gwrAddressLinks(addresses, fallback) {
+  const container = node("span", undefined, "gwr-table-address");
+  if (!addresses.length) {
+    container.textContent = fallback;
+    return container;
+  }
+  for (const [index, address] of addresses.entries()) {
+    if (index) container.append(node("span", "; "));
+    const link = node("a", address);
+    link.href = "https://www.google.com/maps?q=" + encodeURIComponent(address + ", Schweiz") + "&t=k&z=19";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.referrerPolicy = "no-referrer";
+    link.title = "GWR-Adresse in Google Maps öffnen · Satellit · neuer Tab";
+    container.append(link);
+  }
+  return container;
+}
+
 function gwrVolume(egid) {
   return current?.geo?.volumes?.[egid] ?? current?.geo?.buildings?.find(building => building.egid === egid)?.volume;
 }
@@ -583,8 +602,8 @@ function renderCase() {
     button.type = "button"; button.dataset.egid = egid;
     button.addEventListener("click", () => selectEgid(egid));
     const addresses = [...new Set((current.geo?.buildings || []).filter(building => building.egid === egid).flatMap(gwrAddresses))];
-    const addressText = addresses.join("; ") || (current.geo ? "GWR-Adresse nicht verfügbar" : "GWR-Adresse wird geladen …");
-    th.append(button, node("span", addressText, "gwr-table-address")); headings.append(th);
+    const addressFallback = current.geo ? "GWR-Adresse nicht verfügbar" : "GWR-Adresse wird geladen …";
+    th.append(button, gwrAddressLinks(addresses, addressFallback)); headings.append(th);
     if (isBlockedEgid(egid)) th.append(node("span", "Automatisch zugeteilt · gesperrt", "egid-lock-label"));
   }
   head.append(headings); table.append(head);

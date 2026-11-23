@@ -18,6 +18,9 @@ body.top-panel-ready #workspace{padding-top:var(--top-panel-edge)}
 .gvbs-info-list li+li{margin-top:4px}
 .gwr-column{min-width:190px;vertical-align:top}
 .gwr-table-address{display:block;max-width:280px;margin-top:6px;font-size:12px;font-weight:400;line-height:1.5;white-space:normal;overflow-wrap:break-word;color:#526e78}
+.gwr-table-address a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.gwr-table-address a:hover{color:#126a83}
+.gwr-table-address a:focus-visible{outline:2px solid #126a83;outline-offset:2px}
 .record-editor{margin-top:10px;max-width:300px;white-space:normal}
 .record-editor summary{font-size:11px;color:#526e78;cursor:pointer;padding:4px 0}
 .record-editor .edit-fields{display:grid;gap:10px;margin-top:10px}
