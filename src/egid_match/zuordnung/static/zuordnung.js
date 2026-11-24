@@ -778,7 +778,7 @@ function ensureMap() {
   // (EPSG:3857), geprüft am 16.11.2026; aktuell True Orthofoto Mai 2023.
   const aerial = L.tileLayer("https://wmtscache.fgi.cloud.bs.ch/mapcache/wmts/1.0.0/OF_TrueOrthofoto2023Mai/default/v1/3857/{z}/{y}/{x}.png", {...options, maxNativeZoom: 22});
   mapLayers = {parcels: L.layerGroup().addTo(map), buildings: L.layerGroup().addTo(map), markers: L.layerGroup().addTo(map), labels: L.layerGroup().addTo(map), mask: L.layerGroup().addTo(map)};
-  grey.addTo(map);
+  aerial.addTo(map);
   map.attributionControl.addAttribution("Quelle: Geodaten Kanton Basel-Stadt · Statistisches Amt Basel-Stadt, GWR (CC BY) · Nur bestehende Gebäude (GSTAT 1004)");
   L.control.layers({"Grundkarte grau": grey, "Grundkarte farbig": color, "Luftbild (Mai 2023)": aerial}, {}, {collapsed: true}).addTo(map);
   return true;
