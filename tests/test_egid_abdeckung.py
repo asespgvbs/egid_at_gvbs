@@ -8,7 +8,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -298,11 +298,11 @@ class EntrypointTests(unittest.TestCase):
 
     def test_coverage_runs_without_gvbs_export_or_previous_excel(self):
         inventory, records, addr_egids, addresses, grids, grid_egids = synthetic_inventory()
-        with patch.object(sys, "argv", ["egid-abdeckung", "--input", "synthetic/input.xlsx", "--output", "synthetic/coverage.xlsx"]), patch.object(gvbs, "select_files") as select, patch.object(gvbs, "read_gwr", return_value=(addr_egids, addresses, grids, grid_egids)), patch.object(coverage, "read_egid_inventory", return_value=(inventory, addresses)), patch.object(gvbs, "read_excel", return_value=(list(gvbs.REQUIRED), records)) as read, patch.object(gvbs, "match", wraps=gvbs.match) as matching, patch.object(gvbs, "save_excel") as old_export, patch.object(coverage, "save_coverage_excel") as new_export, contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(sys, "argv", ["egid-abdeckung", "--input", "synthetic/input.xlsx", "--output", "synthetic/coverage.xlsx"]), patch.object(gvbs, "select_files") as select, patch.object(gvbs, "read_gwr", return_value=(addr_egids, addresses, grids, grid_egids)), patch.object(gvbs, "read_postal_candidates", return_value={}), patch.object(coverage, "read_egid_inventory", return_value=(inventory, addresses)), patch.object(gvbs, "read_excel", return_value=(list(gvbs.REQUIRED), records)) as read, patch.object(gvbs, "match", wraps=gvbs.match) as matching, patch.object(gvbs, "save_excel") as old_export, patch.object(coverage, "save_coverage_excel") as new_export, contextlib.redirect_stdout(io.StringIO()):
             coverage.main()
         select.assert_not_called()
         read.assert_called_once_with(Path("synthetic/input.xlsx"))
-        matching.assert_called_once_with(records, addr_egids, addresses, grids, grid_egids)
+        matching.assert_called_once_with(records, addr_egids, addresses, grids, grid_egids, postal_lookup=ANY)
         old_export.assert_not_called()
         self.assertEqual(new_export.call_args.args[0], Path("synthetic/coverage.xlsx"))
         self.assertEqual(len(new_export.call_args.args[1]), 14)

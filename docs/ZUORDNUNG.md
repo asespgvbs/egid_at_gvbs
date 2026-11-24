@@ -52,6 +52,13 @@ unverändert und unabhängig vom Zuordnungswerkzeug.
    Importzeile erforderlich. Alternativ aktiviert **Gespeicherte Daten
    aktivieren** die bereits importierten Fälle ohne erneutes Excel-Lesen.
 
+Die Matching-Ausgabe enthält gegebenenfalls eindeutig korrigierte PLZ und
+Suchadressen aus dem einmaligen PLZ-Korrekturlauf. Das Zuordnungstool übernimmt
+diese fertigen Ergebnisse einschliesslich `PLZ ursprünglich` und `PLZ korrigiert`.
+Es führt selbst keine weitere PLZ-Korrekturrunde durch. Der Import verwendet die
+abschliessend über den gesamten Matching-Bestand neu berechneten Kategorien und
+automatischen EGID-Zuordnungen.
+
 Für den Import wird die **vollständige Matching-Datei mit dem Blatt `Matching`**
 benötigt. Daraus übernimmt die App alle tatsächlich automatisch zugeteilten EGID
 in eine globale Sperrliste, auch wenn die zugehörigen GVBSIDs keine Prüffälle

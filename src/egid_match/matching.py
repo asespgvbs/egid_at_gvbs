@@ -18,6 +18,7 @@ DEFAULT_GWR_DB = Path(
 DEFAULT_TEST_INPUT = Path.cwd() / "data" / "test_match_data.xlsx"
 DEFAULT_OUTPUT = Path("gebaeude_egid_matching.xlsx")
 TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
+BASEL_STADT_MUNICIPALITIES = (2701, 2702, 2703)  # Basel, Bettingen, Riehen (BFS).
 REQUIRED = (
     "Kontrollnummer",
     "Gebäudenummer",
@@ -490,6 +491,43 @@ def read_gwr(db):
         egid_grids,
         grid_egids,
     )
+
+
+def read_postal_candidates(db, requested_addresses):
+    """PLZ-Suche nur für angefragte exakte Adressschlüssel innerhalb Basel-Stadts."""
+    requested_addresses = set(requested_addresses)
+    if not requested_addresses:
+        return {}
+    connection = sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        for field, parameters in (
+            ("GGDE", BASEL_STADT_MUNICIPALITIES),
+            ("GGDENR", BASEL_STADT_MUNICIPALITIES),
+            ("GGDENAME", ("basel", "bettingen", "riehen")),
+        ):
+            municipality = f"LOWER(TRIM(b.{field}))" if field == "GGDENAME" else f"b.{field}"
+            try:
+                rows = connection.execute(
+                    "SELECT e.STRNAME, e.DEINR, e.DPLZ4 FROM entrance e "
+                    "JOIN building b ON e.EGID = b.EGID "
+                    f"WHERE b.GSTAT = 1004 AND b.EGID IS NOT NULL AND {municipality} IN (?, ?, ?)",
+                    parameters,
+                ).fetchall()
+                break
+            except sqlite3.OperationalError as error:
+                if "no such column" not in str(error).lower() or f"b.{field}".lower() not in str(error).lower():
+                    raise
+        else:
+            raise ValueError("Die PLZ-Korrektur benötigt eine GWR-Gemeindeangabe in building.GGDE, "
+                             "building.GGDENR oder building.GGDENAME. Ohne Gemeindeangabe erfolgt keine PLZ-Suche.")
+    finally:
+        connection.close()
+    candidates = defaultdict(set)
+    for street, number, postal in rows:
+        key = address(street, number, postal)
+        if key[:2] in requested_addresses and re.fullmatch(r"[0-9]{4}", key[2]):
+            candidates[key[:2]].add(key[2])
+    return dict(candidates)
 # ============================================================
 # GVBS-EXCEL EINLESEN
 # ============================================================
@@ -693,7 +731,46 @@ def create_summary(
 # ============================================================
 # MATCHING
 # ============================================================
-def match(
+def match(records, addr_egids, egid_addresses, egid_grids, grid_egids, *, postal_lookup=None):
+    """Zuerst regulär prüfen, dann einmal PLZ korrigieren und den ganzen Bestand neu bewerten."""
+    results = _match_regular(records, addr_egids, egid_addresses, egid_grids, grid_egids)
+    unmatched = [index for index, result in enumerate(results) if result["Matching-Kategorie"] == "no_match"]
+    if not unmatched or postal_lookup is None:
+        return results
+    fields = [{COLUMN_ALIASES.get(column, column): value for column, value in records[index].items()}
+              for index in unmatched]
+    keys = [address(record["Strasse"], txt(record["Hausnummer"]) + txt(record.get("Hausnummer Zusatz")),
+                    record["Postleitzahl"]) for record in fields]
+    candidates = postal_lookup({key[:2] for key in keys})
+    corrected_records = list(records)
+    corrections = {}
+    # Alle Entscheidungen beruhen auf dem ersten regulären Lauf, ohne weitere Korrekturrunden.
+    for index, key in zip(unmatched, keys, strict=True):
+        postals = {txt(value) for value in candidates.get(key[:2], ())}
+        if len(postals) != 1:
+            continue
+        postal = next(iter(postals))
+        if postal == key[2] or not re.fullmatch(r"[0-9]{4}", postal):
+            continue
+        column = next(column for column in records[index] if COLUMN_ALIASES.get(column, column) == "Postleitzahl")
+        corrections[index] = records[index][column]
+        corrected_records[index] = {**records[index], column: postal}
+    if not corrections:
+        return results
+    results = _match_regular(corrected_records, addr_egids, egid_addresses, egid_grids, grid_egids)
+    for index, original_postal in corrections.items():
+        result = results[index]
+        result["PLZ ursprünglich"] = original_postal
+        result["PLZ korrigiert"] = "Ja"
+        corrected = {COLUMN_ALIASES.get(column, column): value for column, value in corrected_records[index].items()}
+        result["Matching-Zusammenfassung"] += (
+            f" PLZ von {txt(original_postal)} auf {txt(corrected['Postleitzahl'])} korrigiert: "
+            "genau eine GWR-PLZ für die exakte Adresse in Basel, Riehen oder Bettingen."
+        )
+    return results
+
+
+def _match_regular(
     records,
     addr_egids,
     egid_addresses,
@@ -1017,6 +1094,9 @@ def save_excel(path, headers, results, records):
         "GWR-Adressen mit Hausnummernzusatz",
         "EGRID der Hausnummernzusätze",
     ]
+    correction_columns = ["PLZ ursprünglich", "PLZ korrigiert"] if any(
+        result.get("PLZ korrigiert") == "Ja" for result in results) else []
+    extras.extend(correction_columns)
     leading_columns = ["Suchadresse", "GVBSID", "Matching-Zusammenfassung", "Zweckbestimmung"]
     columns = leading_columns + [
         column
@@ -1030,7 +1110,7 @@ def save_excel(path, headers, results, records):
     ]
     ws.append(columns)
     for record, result in sorted_rows:
-        matching_result = {**result, "Suchadresse": search_address(record)}
+        matching_result = {**result, "Suchadresse": search_address(result)}
         ws.append([
             matching_result.get(column)
             for column in columns
@@ -1110,6 +1190,15 @@ def save_excel(path, headers, results, records):
         "Eine GVBSID besteht aus Kontrollnummer "
         "und Gebäudenummer.",
         "",
+    ])
+    notes.append([
+        "PLZ-Korrektur",
+        "Nach dem ersten regulären Matching werden nur no_match-Adressen einmal ohne PLZ "
+        "in Basel, Riehen und Bettingen gesucht. Strasse und Hausnummer samt Zusatz müssen exakt "
+        "übereinstimmen. Genau eine unterschiedliche GWR-PLZ führt zur Korrektur; keine oder "
+        "mehrere PLZ lassen die bisherige PLZ unverändert.",
+        "Nach allen Korrekturen werden sämtliche GVBSIDs erneut regulär kategorisiert. "
+        "PLZ ursprünglich und PLZ korrigiert dokumentieren Änderungen; die Eingabedatei bleibt unverändert.",
     ])
     notes.append([
         "GWR-Adressen",
@@ -1206,10 +1295,13 @@ def save_excel(path, headers, results, records):
     )
     outcome_columns = list(headers)
     outcome_columns[insert_position:insert_position] = ["Suchadresse", "EGID"]
+    outcome_columns.extend(column for column in correction_columns if column not in outcome_columns)
     outcome.append(outcome_columns)
     for record, result in sorted_rows:
-        values = [record.get(column) for column in headers]
-        values[insert_position:insert_position] = [search_address(record), result["EGID"]]
+        values = [result.get(column) if COLUMN_ALIASES.get(column, column) == "Postleitzahl"
+                  else record.get(column) for column in headers]
+        values[insert_position:insert_position] = [search_address(result), result["EGID"]]
+        values.extend(result.get(column) for column in correction_columns if column not in headers)
         outcome.append(values)
     for index, column in enumerate(outcome_columns, start=1):
         outcome.column_dimensions[get_column_letter(index)].width = (
@@ -1412,6 +1504,7 @@ def main():
         egid_addresses,
         egid_grids,
         grid_egids,
+        postal_lookup=lambda addresses: read_postal_candidates(args.gwr_db, addresses),
     )
     save_excel(
         args.output,

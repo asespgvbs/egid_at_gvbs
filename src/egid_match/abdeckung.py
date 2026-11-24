@@ -349,7 +349,8 @@ def main():
     addr_egids, egid_addresses, egid_grids, grid_egids = gvbs.read_gwr(args.gwr_db)
     existing_egids, all_addresses = read_egid_inventory(args.gwr_db)
     _, records = gvbs.read_excel(args.input)
-    results = gvbs.match(records, addr_egids, egid_addresses, egid_grids, grid_egids)
+    results = gvbs.match(records, addr_egids, egid_addresses, egid_grids, grid_egids,
+                        postal_lookup=lambda addresses: gvbs.read_postal_candidates(args.gwr_db, addresses))
     rows, issues = analyze_coverage(existing_egids, results, all_addresses, egid_grids)
     save_coverage_excel(args.output, rows, issues)
     print(f"EGID-Abdeckung: {args.output.resolve()}")

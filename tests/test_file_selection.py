@@ -65,6 +65,7 @@ class MainSelectionTests(unittest.TestCase):
         # Alle Datei-/Datenbankzugriffe sind ersetzt, auch beim Fehlerfall.
         patches = {
             "read_gwr": patch.object(app, "read_gwr", return_value=({}, {}, {}, {})),
+            "read_postal_candidates": patch.object(app, "read_postal_candidates", return_value={}),
             "read_excel": patch.object(app, "read_excel", return_value=(list(app.REQUIRED), [{
                 "Kontrollnummer": "SYNTHETIC-1",
                 "Gebäudenummer": "1",
@@ -93,6 +94,21 @@ class MainSelectionTests(unittest.TestCase):
         self.run_main([], (Path("synthetic/input.xlsx"), Path("synthetic/result.xlsx")))
         self.mocks["read_excel"].assert_called_once_with(Path("synthetic/input.xlsx"))
         self.assertEqual(self.mocks["save_excel"].call_args.args[0], Path("synthetic/result.xlsx"))
+
+    def test_normal_start_corrects_postal_before_exporting_final_categories(self):
+        key = app.address("Synthetische Teststrasse", "1", "4000")
+        self.mocks["read_gwr"].return_value = ({key: {900000001}}, {900000001: {key}},
+                                               {900000001: {"SYNTHETIC-GRID"}},
+                                               {"SYNTHETIC-GRID": {900000001}})
+        self.mocks["read_postal_candidates"].return_value = {key[:2]: {"4000"}}
+        original = self.mocks["read_excel"].return_value[1][0]
+        self.run_main([], (Path("synthetic/input.xlsx"), Path("synthetic/result.xlsx")))
+        self.mocks["read_postal_candidates"].assert_called_once_with(app.DEFAULT_GWR_DB, {key[:2]})
+        result = self.mocks["save_excel"].call_args.args[2][0]
+        self.assertEqual(result["Postleitzahl"], "4000")
+        self.assertEqual(result["PLZ ursprünglich"], "0000")
+        self.assertEqual(result["Matching-Kategorie"], "perfect_match")
+        self.assertEqual(original["Postleitzahl"], "0000")
 
     def test_cancel_uses_previous_input_and_test_output_in_previous_folder(self):
         self.run_main([
@@ -424,7 +440,7 @@ class OutputWorkbookTests(unittest.TestCase):
             {key("12a"): {900000001}, key("13"): {900000002, 900000003},
              key("14"): {900000004}, key("15"): {900000006}},
             {900000001: {key("12a")}, 900000002: {key("13")}, 900000003: {key("13")},
-             900000004: {key("14")}, 900000005: {key("14a")},
+             900000004: {key("14")}, 900000005: {key("14.1")},
              900000006: {key("15"), key("15a")}},
             {900000001: {"TEST-1"}, 900000002: {"TEST-2"}, 900000003: {"TEST-3"},
              900000004: {"TEST-4"}, 900000005: {"TEST-4"}, 900000006: {"TEST-5"}},

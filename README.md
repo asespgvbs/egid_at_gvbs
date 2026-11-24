@@ -81,6 +81,28 @@ Die ursprünglichen Werte bleiben im Import erhalten. Die bisherigen Namen
 `Gebäude (Nr.)`, `Strassennamen`, `Nr.` und `PLZ` werden weiterhin akzeptiert.
 Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
 
+Nach dem ersten regulären Matching wird ausschliesslich für die ursprünglichen
+`no_match`-Einträge einmal ohne Eingabe-PLZ gesucht. Strasse und Hausnummer samt
+Zusatz müssen nach derselben Normalisierung wie im regulären Matching exakt
+übereinstimmen; es gibt keine Ähnlichkeitssuche oder Suffix-Ableitung.
+Für diese Suche zählen nur bestehende GWR-Gebäude in Basel, Riehen und Bettingen.
+Die Gemeindegrenze wird über `building.GGDE` oder `building.GGDENR` (BFS-Nummern
+2701, 2702, 2703), ersatzweise `building.GGDENAME`, geprüft. Fehlen diese Angaben,
+wird die PLZ-Korrektur mit einer verständlichen Meldung abgebrochen.
+
+Genau eine unterschiedliche GWR-PLZ führt zur Korrektur. Mehrere EGIDs oder
+Adressen mit derselben PLZ zählen dabei als eine PLZ. Bei keiner oder mehreren
+möglichen PLZ bleibt die bisherige PLZ erhalten und der Eintrag bleibt `no_match`.
+Alle Korrekturen werden gemeinsam angewendet. Danach wird der vollständige
+reguläre Kategoriencheck über den gesamten Bestand wiederholt: Auch bislang
+zugeordnete GVBSIDs können durch neue Konkurrenz oder veränderte Suffixbeziehungen
+eine andere Kategorie erhalten. Es erfolgt keine weitere PLZ-Korrekturrunde.
+
+Die Eingabedatei wird nicht verändert. In den Ausgaben werden korrigierte PLZ
+und Suchadresse verwendet. Bei Korrekturen dokumentieren die zusätzlichen Spalten
+`PLZ ursprünglich` und `PLZ korrigiert` sowie die Matching-Zusammenfassung die Änderung.
+Dasselbe Verfahren gilt für die eigenständige EGID-Abdeckung.
+
 Die Ausgabedatei enthält weiterhin `Matching`, `Zusammenfassung` und
 `Kategorien-Hinweise`. Im Blatt `Matching` stehen zuerst `Suchadresse`,
 `GVBSID`, `Matching-Zusammenfassung` und `Zweckbestimmung`, danach folgen die
@@ -92,7 +114,8 @@ als Text gespeicherte ganze Zahlen werden numerisch sortiert (2 vor 10),
 danach folgen andere Texte und zuletzt leere Kontrollnummern. Bei gleicher
 Kontrollnummer bleibt die ursprüngliche Reihenfolge erhalten.
 Das zusätzliche Blatt `Ergebnis` enthält alle importierten
-Spalten in ursprünglicher Spaltenreihenfolge und ihre Originalwerte.
+Spalten in ursprünglicher Spaltenreihenfolge und ihre Originalwerte, mit Ausnahme
+der oben beschriebenen eindeutigen PLZ-Korrekturen.
 Direkt nach `Postleitzahl` (bei
 älteren Dateien `PLZ`) werden die Spalten `Suchadresse` und `EGID` eingefügt.
 `Suchadresse` verbindet Strasse, Hausnummer samt Zusatz und Postleitzahl in
@@ -208,6 +231,7 @@ Dialogfenster geöffnet und keine Excel-Dateien geschrieben:
 .\.venv\Scripts\python.exe -I -B tests\test_egid_abdeckung.py
 .\.venv\Scripts\python.exe -I -B tests\test_suffix_pairs.py
 .\.venv\Scripts\python.exe -I -B tests\test_matching_contract.py
+.\.venv\Scripts\python.exe -I -B tests\test_postal_correction.py
 .\.venv\Scripts\python.exe -I -B tests\test_package.py
 ```
 
