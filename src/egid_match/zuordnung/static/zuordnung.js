@@ -14,6 +14,8 @@ const ratioLabels = {all: "Alle Verhältnisse", equal: "Nur 1:1", different: "un
 let map = null, mapLayers = null, markerIndex = new Map(), geometryIndex = new Map(), selectedEgid = null;
 let geoRequestId = 0;
 let egidRenderer = null;
+let flashTimer = null, flashEgid = null, flashGeneration = null;
+let selectionTimer = null;
 const DEFAULT_MAP_ZOOM = 19;
 const numericIds = new Intl.Collator("de-CH", {numeric: true});
 
@@ -661,6 +663,7 @@ function renderCase() {
         const values = new Set(record.assigned);
         if (checkbox.checked) values.add(egid); else values.delete(egid);
         record.assigned = [...values]; changed(record);
+        if (checkbox.checked) flashEgidOnMap(egid);
       });
       td.append(checkbox);
       if (isSizeMatch) td.append(volumeRatioLabel(record, egid));
@@ -677,7 +680,7 @@ function renderCase() {
   }
   table.append(body); $("matrix").replaceChildren(table);
   if (!egids.length) $("matrix").append(node("p", "Keine frei verfügbaren EGID in der Zuordnungsmatrix.", "hint"));
-  if (selectedEgid) selectEgid(selectedEgid);
+  if (selectedEgid) selectEgid(selectedEgid, false);
   gates();
   if (state?.active) packageNotice.update(warnings);
 }
@@ -771,7 +774,7 @@ function ensureMap() {
   map.createPane("parcel-boundaries").style.zIndex = 440;
   map.createPane("egid-points").style.zIndex = 450;
   egidRenderer = L.canvas({padding: .5, pane: "egid-points"});
-  map.on("zoomend", () => ReviewEgidPoints.update(markerIndex, selectedEgid, map.getZoom()));
+  map.on("zoomend", () => paintEgidOutlines());
   const options = {maxZoom: 22, maxNativeZoom: 19, attribution: "GeoBS - Kanton Basel-Stadt"};
   const grey = L.tileLayer("https://wmts.geo.bs.ch/wmts/1.0.0/BaseMap_grau/default/3857/{z}/{y}/{x}.png", options);
   const color = L.tileLayer("https://wmts.geo.bs.ch/wmts/1.0.0/BaseMap_farbig/default/3857/{z}/{y}/{x}.png", options);
@@ -866,14 +869,35 @@ function renderGeo() {
     }
   }).addTo(mapLayers.markers);
   if (!geo.parcels.length && allBounds.isValid()) map.setView(allBounds.getCenter(), DEFAULT_MAP_ZOOM);
-  if (selectedEgid) selectEgid(selectedEgid);
+  if (selectedEgid) selectEgid(selectedEgid, false);
+  else paintEgidOutlines();
 }
 
-function selectEgid(egid) {
+function paintEgidOutlines() {
+  if (map) ReviewEgidPoints.update(markerIndex, selectedEgid, map.getZoom());
+  for (const [id, layers] of geometryIndex) for (const layer of layers) {
+    layer.setStyle({color: isBlockedEgid(id) ? "#7b858d" : id === selectedEgid ? "#b86a00" : "#547d8a", weight: id === selectedEgid ? 4 : 2});
+  }
+  if (flashEgid !== null && flashGeneration === generation) {
+    for (const marker of markerIndex.get(flashEgid) || []) marker.setStyle({color: "#ffff00", weight: 5});
+    for (const layer of geometryIndex.get(flashEgid) || []) layer.setStyle({color: "#ffff00", weight: 5});
+  }
+}
+
+function flashEgidOnMap(egid) {
+  if (flashTimer !== null) window.clearTimeout(flashTimer);
+  flashEgid = String(egid); flashGeneration = generation;
+  paintEgidOutlines();
+  flashTimer = window.setTimeout(() => {
+    flashEgid = null; flashTimer = null; flashGeneration = null;
+    paintEgidOutlines();
+  }, 1500);
+}
+
+function selectEgid(egid, startTimer = true) {
   selectedEgid = egid;
   for (const element of $("matrix").querySelectorAll("[data-egid]")) element.classList.toggle("selected-egid", element.dataset.egid === egid);
-  if (map) ReviewEgidPoints.update(markerIndex, egid, map.getZoom());
-  for (const [id, layers] of geometryIndex) for (const layer of layers) layer.setStyle({color: isBlockedEgid(id) ? "#7b858d" : id === egid ? "#b86a00" : "#547d8a", weight: id === egid ? 4 : 2});
+  paintEgidOutlines();
   const buildings = (current?.geo?.buildings || []).filter(value => value.egid === egid);
   const addresses = [...new Set(buildings.flatMap(gwrAddresses))];
   const addressStatus = current?.geo?.gwr_address_status;
@@ -881,6 +905,17 @@ function selectEgid(egid) {
   const statuses = [...new Set(buildings.map(value => value.gstat).filter(Boolean))];
   const volumeText = ReviewEgidPoints.volumeText(gwrVolume(egid));
   $("egid-details").textContent = `EGID ${egid}${volumeText ? " · " + volumeText : ""}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}${isBlockedEgid(egid) ? "\nBereits zugeteilt · Für manuelle Vergabe gesperrt" : ""}`;
+  if (startTimer) {
+    if (selectionTimer !== null) window.clearTimeout(selectionTimer);
+    const stamp = generation;
+    selectionTimer = window.setTimeout(() => {
+      selectionTimer = null;
+      if (stamp !== generation || selectedEgid !== egid) return;
+      selectedEgid = null;
+      for (const element of $("matrix").querySelectorAll("[data-egid]")) element.classList.toggle("selected-egid", false);
+      paintEgidOutlines();
+    }, 4000);
+  }
 }
 
 async function loadGeo() {

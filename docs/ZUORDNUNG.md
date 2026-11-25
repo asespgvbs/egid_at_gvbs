@@ -282,6 +282,11 @@ Jede Matrix-Checkbox stellt eine Beziehung dar. Eine GVBSID darf mehrere EGID
 erhalten; dieselbe frei verfügbare EGID darf mehreren GVBSIDs zugeordnet werden. Status und
 Kommentar werden je GVBSID geführt. Angezeigte ursprüngliche Kandidaten werden
 niemals allein durch das Öffnen oder einen Kartenklick bestätigt.
+Beim Anwählen einer Checkbox wird die zugehörige EGID, soweit auf der Karte
+vorhanden, für 1,5 Sekunden gelb umrandet. Die Auswahl wird dadurch nicht
+gespeichert; dafür bleibt **Entscheidung speichern** erforderlich.
+Beim Klick auf eine EGID in der Matrix oder auf der Karte verschwindet die
+Hervorhebung nach vier Sekunden. Ein erneuter Klick startet die Zeit erneut.
 
 **Bereits zugeteilte EGID sind gesperrt und werden in der Matrix ausgeblendet.**
 Auf der Karte sind sie bei Punkten, Gebäudegeometrien und Beschriftungen grau. Sie bleiben zur

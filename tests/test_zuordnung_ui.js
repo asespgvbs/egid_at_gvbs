@@ -36,12 +36,13 @@ async function runReviewUiTest(sources) {
   }, category_aliases: {review_suffix_single_building: "review_suffix_single_gvbsid_multiple_egid"}});
   elements["case-content"].append(elements.matrix);
   const document = {body: new Element("body"), documentElement: new Element("html"), createElement: tag => new Element(tag), getElementById(id) {if (!elements[id]) throw new Error("Unbekannte DOM-ID"); return elements[id];}, addEventListener() {}};
-  const window = {addEventListener() {}, setTimeout() {return 1;}, clearTimeout() {}, innerWidth: 1200, innerHeight: 800, requestAnimationFrame(callback) {callback();}};
+  const timers = new Map(); let nextTimer = 0;
+  const window = {addEventListener() {}, setTimeout(callback, delay) {const id = ++nextTimer; timers.set(id, {callback, delay}); return id;}, clearTimeout(id) {timers.delete(id);}, innerWidth: 1200, innerHeight: 800, requestAnimationFrame(callback) {callback();}};
   function group() {return {layers: [], clearLayers() {this.layers = [];}, getLayers() {return this.layers;}};}
   const viewCalls = [];
   const map = {getZoom() {return 19;}, setView(...args) {viewCalls.push(args);}, fitBounds(...args) {viewCalls.push(["fitBounds", ...args]);}, invalidateSize() {}};
   function bounds() {return {extend() {return this;}, isValid() {return true;}, getCenter() {return {lat: 47.52, lng: 7.55};}};}
-  function layer(options = {}) {return {options, events: {}, addTo(target) {target.layers.push(this); return this;}, on(event, callback) {this.events[event] = callback; return this;}, setStyle() {}, getBounds: bounds, bindTooltip() {throw new Error("Unerwartete Karten-Hoverinfo");}};}
+  function layer(options = {}) {return {options, events: {}, appliedStyle: {}, addTo(target) {target.layers.push(this); return this;}, on(event, callback) {this.events[event] = callback; return this;}, setStyle(style) {Object.assign(this.appliedStyle, style);}, getBounds: bounds, bindTooltip() {throw new Error("Unerwartete Karten-Hoverinfo");}};}
   const L = {
     latLngBounds: bounds,
     geoJSON(value, options = {}) {
@@ -124,6 +125,19 @@ async function runReviewUiTest(sources) {
   check(layers.labels.layers[1].options.icon.html.textContent === "102 - GWR-Adresse nicht verfügbar", "Fehlende GWR-Adresse auch auf der Karte kenntlich machen");
   const previousViewCalls = viewCalls.length;
   layers.labels.layers[0].events.click();
+  const firstSelection = [...timers.entries()].find(([, timer]) => timer.delay === 4000);
+  check(Boolean(firstSelection) && header.children[1].children[0].classList.contains("selected-egid"),
+    "Kartenklick markiert die Matrix und startet vier Sekunden");
+  ui.renderCase();
+  check(timers.has(firstSelection[0]), "Neuzeichnen verlängert die Hervorhebung nicht");
+  ui.selectEgid("101");
+  check(!timers.has(firstSelection[0]), "Erneuter Klick startet den Zeitraum neu");
+  const lastSelection = [...timers.values()].find(timer => timer.delay === 4000);
+  lastSelection.callback();
+  check(!elements.matrix.children[0].children[0].children[0].children[1].children[0].classList.contains("selected-egid"),
+    "Nach vier Sekunden verschwindet die Hervorhebung in der Matrix");
+  check(layers.markers.layers[0].markers[0].appliedStyle.color !== "#ffbe00",
+    "Nach vier Sekunden verschwindet auch die Markierung auf der Karte");
   const details = elements["egid-details"].textContent;
   check(details.includes("GSTAT 1004"), "Gebäudestatus in den Klickdetails erhalten");
   check(details.includes("GWR: GWR-Testgasse 9a 0000"), "Originaladresse in den Klickdetails erhalten");
@@ -190,6 +204,19 @@ async function runReviewUiTest(sources) {
     check(!elements["left-pane"].classList.contains("has-category"), "Fehlende oder unbekannte Kategorie neutral darstellen");
     check(elements["left-pane"].style.getPropertyValue("--category-color") === "#d9e2e6", "Vorherige Kategoriefarbe beim Wechsel zu unbekannter Kategorie entfernen");
   }
+  const flashCase = {...value, records: [{...value.records[0], assigned: []}]};
+  ui.configure(flashCase, map, layers); ui.renderCase(); ui.renderGeo();
+  const flashInput = elements.matrix.children[0].children[1].children[0].children[1].children[0];
+  const flashMarker = layers.markers.layers[0].markers.find(marker => marker.reviewProperties.egid === flashInput.dataset.egid);
+  flashInput.checked = true; flashInput.events.change();
+  check(flashMarker.appliedStyle.color === "#ffff00" && flashMarker.appliedStyle.weight === 5,
+    "Beim Anwählen die zugehörige EGID gelb umranden");
+  const flashTimeout = [...timers.values()].find(timer => timer.delay === 1500);
+  check(Boolean(flashTimeout), "Gelbe Umrandung für 1,5 Sekunden planen");
+  flashTimeout.callback();
+  check(flashMarker.appliedStyle.color !== "#ffff00" && flashCase.records[0].assigned.length === 1,
+    "Nach Ablauf ursprünglichen Kartenstil wiederherstellen und Auswahl erhalten");
+  ui.configure(value, map, layers); ui.renderCase();
   const locked = {...value, blocked_egids: ["101", "102"], assignable_egids: [],
     records: [{...value.records[0], assigned: []}]};
   ui.configure(locked, map, layers); ui.renderCase();
