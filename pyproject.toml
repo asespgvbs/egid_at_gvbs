@@ -12,6 +12,7 @@ dependencies = [
 egid-match = "egid_match.matching:main"
 egid-abdeckung = "egid_match.abdeckung:main"
 egid-zuordnung = "egid_match.zuordnung.app:main"
+egid-zusammenfuehren = "egid_match.zusammenfuehren:main"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]

@@ -1,17 +1,18 @@
 # EGID-Matching
 
 Das Repository unterstützt die Zuordnung von GVBS-Gebäuden zu EGIDs des Gebäude-
-und Wohnungsregisters (GWR). Es umfasst drei Programme:
+und Wohnungsregisters (GWR). Es umfasst vier Programme:
 
 | Programm | Aufgabe | Ergebnis |
 | --- | --- | --- |
 | **Matching** | Vergleicht jede GVBS-Eingabezeile mit GWR-Adressen und kategorisiert den Treffer. Eindeutige Fälle werden nach den Regeln automatisch zugeteilt. | Excel-Arbeitsmappe mit einer Zeile pro GVBS-Eingabezeile und Kategorieblättern |
 | **Zuordnung** | Unterstützt die manuelle n:m-Zuteilung ausgewählter Prüffälle aus einer Matching-Arbeitsmappe. | Lokaler Bearbeitungsstand in SQLite und exportierbare Excel-Arbeitsmappe |
 | **EGID-Abdeckung** | Wertet den bestehenden GWR-EGID-Bestand aus der Perspektive der EGIDs aus. | Separate Excel-Arbeitsmappe mit einer Zeile pro bestehender EGID |
+| **Zusammenführen** | Verbindet automatische und manuelle EGID-Zuteilungen mit den GVBS-Kennungen. | Excel-Arbeitsmappe mit GVBS-Kennungen, EGIDs und deren Zuteilungsquellen |
 
 Ein typischer Ablauf ist: **GVBS-Eingabe und GWR bereitstellen → Matching ausführen
 → vollständige Matching-Arbeitsmappe im Zuordnungstool laden → Prüffälle bearbeiten
-und exportieren**. Die EGID-Abdeckung ist optional und läuft unabhängig von der
+und exportieren → Eingabe und beide Ausgaben zusammenführen**. Die EGID-Abdeckung ist optional und läuft unabhängig von der
 Zuordnungsdatenbank. Sie liest die GVBS-Eingabe und das GWR erneut ein.
 
 Die vollständige Bedienung der manuellen Zuordnung steht in der
@@ -68,6 +69,7 @@ Die Programme lassen sich aus dem Repository mit der vorhandenen Python-Umgebung
 | Matching | `python -m egid_match.matching` | `egid-match` |
 | Abdeckung | `python -m egid_match.abdeckung` | `egid-abdeckung` |
 | Zuordnungsoberfläche | `python -m egid_match.zuordnung` | `egid-zuordnung` |
+| Zusammenführen | `python -m egid_match.zusammenfuehren` | `egid-zusammenfuehren` |
 
 `python -m egid_match` startet ebenfalls das Matching. Die Oberfläche lädt ihre
 HTML-/CSS-/JS-Dateien über Paketressourcen; die URLs unter `/static/` bleiben gleich.
@@ -292,6 +294,44 @@ Dialogfenster geöffnet und keine Excel-Dateien geschrieben:
 .\.venv\Scripts\python.exe -I -B tests\test_postal_correction.py
 .\.venv\Scripts\python.exe -I -B tests\test_package.py
 ```
+
+## Zuteilungen zusammenführen
+
+```powershell
+.\.venv\Scripts\python.exe -m egid_match.zusammenfuehren
+```
+
+Die Windows-Dialoge fragen nacheinander nach der ursprünglichen GVBS-Eingabe,
+der vollständigen Matching-Ausgabe und dem Excel-Export aus dem Zuordnungstool.
+Anschliessend werden Speicherort und Name der neuen `.xlsx`-Datei gewählt. Bei
+Abbruch wird keine Ausgabe erstellt. Die Ausgabe darf nicht eine der drei
+Eingabedateien sein.
+
+Der Abgleich erfolgt anhand der aus Kontrollnummer und Gebäudenummer gebildeten
+GVBSID. Die ursprünglichen Tabellen bleiben erhalten. Das aktive Eingabeblatt
+erhält zusätzlich die Spalten `EGID zusammengeführt` und `zugeteilt aus`.
+Das zusätzliche Blatt `Zuteileung_EGID_GVBS` enthält ausschliesslich die Spalten
+`Kontrollnummer`, `Gebäudenummer`, `EGID_zusammengeführt` und `EGID_zugeteil_aus`.
+Das Blatt `Zusammenfassung` zeigt die Anzahl, den prozentualen Anteil und den
+kumulierten Anteil je Zuteilungsquelle sowie die Gesamtzahl. Jede Eingabezeile
+zählt einmal; bei mehreren EGIDs wird die vollständige Quellenkombination als
+eine Gruppe gezählt. Die Reihenfolge folgt den Matching-Kategorien; Kombinationen
+werden bei ihrer in dieser Reihenfolge frühesten Kategorie einsortiert, `manuell`
+bei `manuell_zugeteilt`.
+Zeilen ohne Zuteilung erscheinen zuletzt als `Nicht zugeteilt`.
+Zuteilungen aus der optionalen Eingabespalte `EGID_zugeteilt` werden als
+`manuell` übernommen. Auch gespeicherte Zuordnungen aus offenen oder als
+Sonderfall markierten Fällen werden berücksichtigt. Nicht gespeicherte Änderungen
+aus dem Browser sind nicht im Export enthalten.
+
+Mehrere EGIDs stehen kommasepariert in einer Zelle, numerisch sortiert. Die
+Quellen stehen in derselben Reihenfolge in der Nachbarzelle: die Matching-Kategorie
+für automatische Zuteilungen und `manuell` für bestehende oder aus dem
+Zuordnungstool exportierte Zuteilungen. Ohne Zuteilung bleiben beide Felder leer.
+Doppelte GVBSIDs in der Eingabe, Zuteilungen ohne passende Eingabezeile,
+widersprüchliche Quellen für dieselbe Beziehung sowie bereits vorhandene
+Ausgabespalten oder Ausgabeblätter
+führen zu einem Fehler statt zu einer stillschweigenden Änderung.
 
 ## Eigenständige EGID-Abdeckung
 
