@@ -109,7 +109,9 @@ CATEGORIES = [
         "und PLZ sowie einer Hausnummer, die durch einen "
         "Punkt-Zahl-Zusatz aus der GVBS-Hausnummer entsteht. Für diese "
         "zusätzliche Adresse ist keine eigene GVBSID im "
-        "eingelesenen Datensatz vorhanden.",
+        "eingelesenen Datensatz vorhanden. Ausgangspunkt ist die GVBS-Adresse; "
+        "nach dem direkten Treffer werden weitere EGIDs auf denselben EGRIDs "
+        "und deren Adressen auf Zusätze ohne eigene GVBSID geprüft.",
         "Keine automatische Zuordnung. Prüfen, ob die GVBSID "
         "mehrere EGIDs umfasst.",
     ),
@@ -1265,20 +1267,6 @@ def save_excel(path, headers, results, records):
         "EGRIDs für dieselbe EGID sind allein "
         "kein Ausschlussgrund für super_match.",
         "",
-    ])
-    notes.append([
-        "review_address_suffix",
-        "Ausgangspunkt ist immer die GVBSID mit ihrer "
-        "GVBS-Adresse. Nach einem eindeutigen direkten "
-        "EGID-Adresstreffer werden weitere EGIDs "
-        "auf denselben EGRIDs untersucht. "
-        "Bei gleicher Strasse und PLZ sowie einer "
-        "Hausnummer mit Punkt-Zahl-Zusatz wird geprüft, ob "
-        "für diese zusätzliche GWR-Adresse eine "
-        "eigene GVBSID im eingelesenen Datensatz "
-        "vorhanden ist.",
-        "In der Kategorie review_address_suffix erfolgt "
-        "keine automatische Zuordnung.",
     ])
     notes.append([
         "Hausnummernzusätze",
