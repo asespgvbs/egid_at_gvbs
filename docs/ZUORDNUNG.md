@@ -231,9 +231,10 @@ Darüber steht der Filter **GVBSID:EGID - Verhältnis**:
   beispielsweise 1:1, 2:2 oder 4:4.
 - **ungleich 1:1** zeigt unterschiedliche Anzahlen, auch Fälle ohne EGID wie 1:0.
 
-Gezählt werden dieselben eindeutigen IDs wie in der Matrix: importierte Kandidaten,
+Gezählt werden die eindeutigen IDs des Pakets: importierte Kandidaten,
 gespeicherte Zuteilungen und zusätzliche verlässlich geladene Geodaten des Pakets.
-Bereits automatisch zugeteilte, ausgegraute EGIDs zählen mit. Veraltete Geodaten
+Bereits zugeteilte, auf der Karte ausgegraute EGIDs zählen mit, auch wenn sie in der
+Matrix ausgeblendet sind. Veraltete Geodaten
 und Geodaten anderer EGRID-Pakete werden nicht als zusätzliche Kandidaten gezählt.
 Das Filtern selbst löst keine weiteren Geodatenabfragen aus.
 
@@ -282,8 +283,8 @@ erhalten; dieselbe frei verfügbare EGID darf mehreren GVBSIDs zugeordnet werden
 Kommentar werden je GVBSID geführt. Angezeigte ursprüngliche Kandidaten werden
 niemals allein durch das Öffnen oder einen Kartenklick bestätigt.
 
-**Bereits automatisch zugeteilte EGID sind grau und gesperrt**: in der Tabelle,
-bei Kartenpunkten, Gebäudegeometrien und Beschriftungen. Sie bleiben zur
+**Bereits zugeteilte EGID sind gesperrt und werden in der Matrix ausgeblendet.**
+Auf der Karte sind sie bei Punkten, Gebäudegeometrien und Beschriftungen grau. Sie bleiben zur
 Orientierung sichtbar und auf der Karte auswählbar, können aber keiner GVBSID
 neu zugeordnet werden. Die Prüfung gilt auch für zusätzliche EGID aus dem
 Geodienst und wird beim Speichern innerhalb derselben Transaktion erneut

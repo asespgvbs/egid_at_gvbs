@@ -194,11 +194,10 @@ async function runReviewUiTest(sources) {
     records: [{...value.records[0], assigned: []}]};
   ui.configure(locked, map, layers); ui.renderCase();
   const lockedTable = elements.matrix.children[0], lockedHeader = lockedTable.children[0].children[0];
-  const lockedCell = lockedTable.children[1].children[0].children[1], lockedInput = lockedCell.children[0];
-  check(lockedHeader.children[1].classList.contains("egid-locked") && lockedCell.classList.contains("egid-locked"), "Automatisch zugeteilte Spalten und Zellen als gesperrt kennzeichnen");
-  check(lockedInput.disabled && lockedHeader.children[1].textContent.includes("Bereits zugeteilt"), "Gesperrte EGID deaktivieren und die Sperre erklären");
-  lockedInput.checked = true; lockedInput.events.change();
-  check(!lockedInput.checked && locked.records[0].assigned.length === 0, "Auch ein künstliches Änderungsereignis kann keine gesperrte EGID vergeben");
+  check(lockedHeader.children.length === 1 && lockedTable.children[1].children[0].children.length === 1,
+    "Gesperrte EGID erscheinen nicht in der Matrix");
+  check(elements.matrix.children[1].textContent.includes("Keine frei verfügbaren EGID"),
+    "Ein Paket ohne freie EGID erhält einen Hinweis");
   ui.renderGeo();
   check(layers.markers.layers[0].markers.every(marker => marker.options.fillColor === "#a0a9b0"), "Automatisch zugeteilte Kartenpunkte grau darstellen");
   check(layers.buildings.layers[0].options.style.fillColor === "#a0a9b0", "Automatisch zugeteilte Gebäudegeometrien grau darstellen");
@@ -211,7 +210,8 @@ async function runReviewUiTest(sources) {
   const conflictNote = conflictIdentity.children.find(child => child.className === "assignment-conflict");
   conflictNote.children[1].events.click();
   check(conflict.records[0].assigned.length === 0, "Gesperrte Altzuordnung erst nach ausdrücklichem Klick entfernen");
-  check(elements.matrix.children[0].children[1].children[0].children[1].children[0].disabled, "Nach Entfernen des Konflikts bleibt die EGID gesperrt");
+  check(elements.matrix.children[0].children[0].children[0].children[1].children[0].dataset.egid === "102",
+    "Nach Entfernen des Konflikts bleibt nur die freie EGID in der Matrix");
   ui.configure({...value, automatic_assignments_loaded: false}, map, layers); ui.renderCase();
   check(elements.save.disabled && elements.matrix.children[0].children[1].children[0].children[1].children[0].disabled, "Ohne bekannte automatische Zuordnungen bleiben Vergabe und Speichern gesperrt");
   check(!elements["assignment-lock-note"].hidden && elements["assignment-lock-note"].textContent.includes("Matching-Datei"), "Bei Altbeständen den nötigen vollständigen Import erklären");
@@ -304,16 +304,14 @@ async function runReviewUiTest(sources) {
   ui.configure(sortedValue, map, layers); ui.renderCase();
   const sortedTable = elements.matrix.children[0];
   const columnOrder = () => elements.matrix.children[0].children[0].children[0].children.slice(1).map(th => th.children[0].dataset.egid).join();
-  check(columnOrder() === "5,2,10,6,7,8,9,11,12", "EGID nach GWR-Volumen absteigend sortieren, bei Gleichstand numerisch und ungültige oder fehlende Werte zuletzt");
+  check(columnOrder() === "2,10,6,7,8,9,11,12", "Freie EGID nach GWR-Volumen sortieren und gesperrte EGID ausblenden");
   check(sortedTable.children[1].children.map(row => row.children[0].children[0].textContent).join() ===
     "2-2 (GVBSID),2-10 (GVBSID),10-2 (GVBSID),1234-1 (GVBSID),1234-2 (GVBSID),1234-4 (GVBSID),1234-10 (GVBSID)",
     "Kontrollnummer und Gebäudenummer numerisch aufsteigend sortieren, damit 10 hinter 2 steht");
   const lastSortedRow = sortedTable.children[1].children[6];
-  check(lastSortedRow.children[3].dataset.egid === "10" && lastSortedRow.children[3].children[0].checked,
+  check(lastSortedRow.children[2].dataset.egid === "10" && lastSortedRow.children[2].children[0].checked,
     "Sortierte Checkbox bleibt mit der ursprünglichen GVBSID-EGID-Beziehung verbunden");
-  check(sortedTable.children[0].children[0].children[1].classList.contains("egid-locked") &&
-    sortedTable.children[1].children.every(row => row.children[1].children[0].disabled),
-    "Automatisch gesperrte EGID bleiben auch nach der Volumensortierung grau und deaktiviert");
+  check(!columnOrder().split(",").includes("5"), "Gesperrte EGID bleiben auch nach der Sortierung ausgeblendet");
   check(sortedValue.egids.join() === unsortedEgids.join() && sortedValue.records.map(record => record.gvbsid).join() === unsortedIds.join(),
     "Anzeigesortierung verändert weder die Eingabereihenfolge noch die gespeicherten Beziehungen");
   const sortedComment = lastSortedRow.children[0].children.find(child => child.className === "record-editor").children[1].children[0].children[0];
@@ -322,11 +320,11 @@ async function runReviewUiTest(sources) {
     "Kommentar nach der Zeilensortierung weiterhin der richtigen GVBSID zuordnen");
   sortedValue.geo.volumes["2"] = 2000;
   ui.renderCase();
-  check(columnOrder() === "2,5,10,6,7,8,9,11,12", "Neue Volumenwerte aktualisieren die EGID-Reihenfolge beim Neuzeichnen");
+  check(columnOrder() === "2,10,6,7,8,9,11,12", "Neue Volumenwerte aktualisieren die EGID-Reihenfolge beim Neuzeichnen");
   check(ui.decisionPayload("Abgeschlossen").decisions.find(record => record.gvbsid === "1234-10").assigned.join() === "10" && !elements.dirty.hidden,
     "Eine geänderte Spaltenreihenfolge erhält Zuteilungen und ungespeicherte Bearbeitungen");
   ui.configure({...sortedValue, geo: null}, map, layers); ui.renderCase();
-  check(columnOrder() === "2,5,6,7,8,9,10,11,12", "Ohne geladene Volumen EGID vorläufig numerisch sortieren");
+  check(columnOrder() === "2,6,7,8,9,10,11,12", "Ohne geladene Volumen EGID vorläufig numerisch sortieren");
 
   const volumeCase = {...value, selected: "1234-1", egids: ["101", "102", "103", "104"],
     records: [["1234-10", 50], ["1234-4", 150], ["1234-1", 200], ["1234-2", 100]].map(([gvbsid, volume]) =>
@@ -642,11 +640,8 @@ async function runReviewUiTest(sources) {
     "Ein anderes EGRID-Paket erhält wieder standardmässige Vorschläge ohne Zuteilungen zu ändern");
   ui.configure({...guideValue, blocked_egids: ["101"], assignable_egids: ["102", "103"]}, map, layers); ui.renderCase();
   check(!guideButton.disabled, "Gesperrte EGID dürfen bei rein visuellen Grössenvergleichen berücksichtigt werden");
-  const lockedGuideHead = guideHeads().find(head => head.children[0].dataset.egid === "101");
-  check(lockedGuideHead.classList.contains("egid-locked") &&
-    guideRows().some(row => row.children.some(cell => cell.dataset.egid === "101" && cell.classList.contains("size-match"))) &&
-    guideRows().every(row => row.children.find(cell => cell.dataset.egid === "101").children[0].disabled),
-    "Auch mit Grössenvorschlägen bleiben automatisch zugeteilte EGID grau und ihre Checkboxen gesperrt");
+  check(guideHeads().every(head => head.children[0].dataset.egid !== "101"),
+    "Gesperrte EGID bleiben auch bei Grössenvorschlägen aus der Matrix ausgeblendet");
   ui.applyState({database: "synthetic", active: false, progress: {total: 1, completed: 0, remaining: 1}});
   check(guideButton.hidden && guideButton.disabled && guideButton.attributes["aria-pressed"] === "false",
     "Bei Deaktivierung der Datenbank auch den Vorschlagsknopf zurücksetzen und sperren");

@@ -574,7 +574,7 @@ const packageNotice = createPackageNotice();
 function renderCase() {
   recordInfo.hide();
   renderCategoryTheme();
-  const egids = [...current.egids].sort(compareEgidVolumes);
+  const egids = current.egids.filter(egid => !isBlockedEgid(egid)).sort(compareEgidVolumes);
   const records = [...current.records].sort((first, second) => numericIds.compare(first.gvbsid, second.gvbsid));
   const warnings = packageWarnings(records);
   const volumeOutOfOrder = warnings.some(warning => warning.id === "volume");
@@ -592,7 +592,7 @@ function renderCase() {
   lockNote.textContent = !current.automatic_assignments_loaded
     ? "Bitte die vollständige Matching-Datei importieren. Ohne die Liste bereits vergebener EGID bleibt die Vergabe gesperrt."
     : !current.egrids.length ? "Die EGRID ist noch nicht verlässlich bekannt. Paketaktionen sind erst nach Klärung der EGRID möglich."
-    : "Graue EGID sind bereits automatisch zugeteilt und können nicht erneut vergeben werden.";
+    : "Bereits zugeteilte EGID erscheinen auf der Karte und können nicht erneut vergeben werden.";
   const table = node("table"), head = node("thead"), headings = node("tr");
   table.classList.toggle("has-size-guides", guidePairs.length > 0);
   headings.append(node("th", "GVBS"));
@@ -676,7 +676,7 @@ function renderCase() {
     fields.append(commentLabel); editor.append(fields); identity.append(editor);
   }
   table.append(body); $("matrix").replaceChildren(table);
-  if (!current.egids.length) $("matrix").append(node("p", "Keine verlässlich verfügbaren EGID. Geodatenquelle und Kandidaten prüfen.", "hint"));
+  if (!egids.length) $("matrix").append(node("p", "Keine frei verfügbaren EGID in der Zuordnungsmatrix.", "hint"));
   if (selectedEgid) selectEgid(selectedEgid);
   gates();
   if (state?.active) packageNotice.update(warnings);
