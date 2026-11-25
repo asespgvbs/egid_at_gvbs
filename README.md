@@ -1,15 +1,44 @@
 # EGID-Matching
 
-Für die manuelle n:m-Zuordnung der Prüffälle gibt es zusätzlich das eigenständige
-[lokale Zuordnungswerkzeug](docs/ZUORDNUNG.md):
+Das Repository unterstützt die Zuordnung von GVBS-Gebäuden zu EGIDs des Gebäude-
+und Wohnungsregisters (GWR). Es umfasst drei Programme:
+
+| Programm | Aufgabe | Ergebnis |
+| --- | --- | --- |
+| **Matching** | Vergleicht jede GVBS-Eingabezeile mit GWR-Adressen und kategorisiert den Treffer. Eindeutige Fälle werden nach den Regeln automatisch zugeteilt. | Excel-Arbeitsmappe mit einer Zeile pro GVBS-Eingabezeile und Kategorieblättern |
+| **Zuordnung** | Unterstützt die manuelle n:m-Zuteilung ausgewählter Prüffälle aus einer Matching-Arbeitsmappe. | Lokaler Bearbeitungsstand in SQLite und exportierbare Excel-Arbeitsmappe |
+| **EGID-Abdeckung** | Wertet den bestehenden GWR-EGID-Bestand aus der Perspektive der EGIDs aus. | Separate Excel-Arbeitsmappe mit einer Zeile pro bestehender EGID |
+
+Ein typischer Ablauf ist: **GVBS-Eingabe und GWR bereitstellen → Matching ausführen
+→ vollständige Matching-Arbeitsmappe im Zuordnungstool laden → Prüffälle bearbeiten
+und exportieren**. Die EGID-Abdeckung ist optional und läuft unabhängig von der
+Zuordnungsdatenbank. Sie liest die GVBS-Eingabe und das GWR erneut ein.
+
+Die vollständige Bedienung der manuellen Zuordnung steht in der
+[Anleitung zum Zuordnungswerkzeug](docs/ZUORDNUNG.md). Start:
 
 ```powershell
 .\.venv\Scripts\python.exe -m egid_match.zuordnung
 ```
 
-Es verwendet vorhandene Abhängigkeiten ohne weitere Installation. Datenbankwahl,
-Import, Bearbeitungsstand, amtliche Geodatenanbindung und vollständiger Export sind in
-der verlinkten Anleitung beschrieben. Die beiden Auswertungen bleiben unabhängig.
+### Voraussetzungen
+
+- Windows mit Python **3.14 oder neuer**, einer eingerichteten Projektumgebung
+  und `openpyxl` ab Version 3.1.5; die Projektabhängigkeiten stehen in
+  [pyproject.toml](pyproject.toml). Die folgenden Beispiele verwenden die
+  vorhandene virtuelle Umgebung `.venv` im Repository.
+- Eine GVBS-Eingabe als `.xlsx` und eine passende lokale GWR-SQLite-Datenbank.
+  Die benötigten Eingabespalten sind unten beschrieben. Der im Quellcode
+  konfigurierte GWR-Standardpfad ist installationsabhängig; mit `--gwr-db`
+  lässt sich ein anderer Pfad angeben.
+- Für die Dateidialoge wird Tkinter benötigt. Die Zuordnungsoberfläche läuft
+  lokal im Browser; für Karte und externe Geodienste ist eine Internetverbindung
+  nötig. Die reine Bearbeitung und der Export benötigen keine Geodatenverbindung.
+
+Die Startbefehle setzen eine bereits eingerichtete Umgebung voraus; sie richten
+keine Abhängigkeiten selbst ein. Bei einer neuen Umgebung müssen die in
+`pyproject.toml` angegebenen Abhängigkeiten und das Projekt verfügbar gemacht
+werden.
 
 ## Paketstruktur und Startbefehle
 
@@ -51,11 +80,13 @@ Das Projekt enthält zwei eigenständige Auswertungen mit getrennten Excel-Datei
 | `egid_match.matching` | Eine Ergebniszeile pro GVBS-Eingabezeile | `gebaeude_egid_matching.xlsx` |
 | `egid_match.abdeckung` | Eine Ergebniszeile pro bestehender EGID | `egid_abdeckung.xlsx` |
 
+## Matching
+
 Der Anwendungscode liegt als Paket unter `src/egid_match/`. Die GVBSID-Auswertung
 wird als Modul gestartet:
 
 ```powershell
-cd C:\dev\repos\egid_match
+cd 'C:\Pfad\zum\Repository'
 .\.venv\Scripts\python.exe -m egid_match.matching
 ```
 
@@ -64,13 +95,8 @@ Excel-Eingabedatei. Danach fragt ein Speicherdialog nach dem Ausgabeort und
 Dateinamen. Der vorgeschlagene Dateiname ist `gebaeude_egid_matching.xlsx`.
 Vor dem Überschreiben einer vorhandenen Datei fragt der Speicherdialog nach.
 
-```powershell
-cd C:\dev\repos\egid_match
-.\.venv\Scripts\python.exe -m egid_match.matching
-```
-
-Die Eingabe enthält diese Spalten und darf danach beliebige weitere Spalten
-enthalten:
+Das erste Tabellenblatt der Eingabe enthält diese Spaltennamen. Ihre Reihenfolge
+ist frei; weitere Spalten dürfen an beliebiger Stelle stehen:
 
 | Kontrollnummer | Gebäudenummer | Strasse | Hausnummer | Hausnummer Zusatz | Postleitzahl |
 | --- | --- | --- | --- | --- | --- |
@@ -81,6 +107,8 @@ Die ursprünglichen Werte bleiben im Import erhalten. Die bisherigen Namen
 `Gebäude (Nr.)`, `Strassennamen`, `Nr.` und `PLZ` werden weiterhin akzeptiert.
 Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
 
+Alle oben aufgeführten Spalten ausser `Hausnummer Zusatz` müssen vorhanden sein.
+Doppelte Spaltennamen, auch durch die aufgeführten Aliasnamen, werden abgelehnt.
 Die optionale Eingabespalte `EGID_zugeteilt` darf an beliebiger Stelle stehen.
 Sie enthält bereits manuell vergebene positive EGIDs; mehrere Werte werden durch
 Komma, Semikolon oder Zeilenumbruch getrennt. Ungültige Einträge führen zu einem
@@ -88,9 +116,22 @@ Fehler. Eine Zeile mit Eintrag erhält `manuell_zugeteilt` und keine weitere
 automatische Zuteilung. Betrifft eine solche EGID bei einer anderen Zeile einen
 direkten oder Suffix-Kandidaten, erhält diese `zuordnungskonflikt` und keine
 automatische Zuteilung. Die Konflikte werden im Zuordnungstool zur Prüfung geladen;
-die bereits vergebenen EGIDs sind dort gesperrt. Fehlt die Spalte oder ist sie
-leer, bleibt das bisherige Verhalten erhalten. Bereits in einer Zuordnungsdatenbank
-gespeicherte Fälle werden beim erneuten Import nicht automatisch entfernt.
+die bereits vergebenen EGIDs sind dort gesperrt. `manuell_zugeteilt` wird grau,
+`zuordnungskonflikt` rot dargestellt; in den Zusammenfassungen bleibt eine
+Konfliktzeile mit Anzahl 0 ungefärbt. Fehlt die Spalte oder ist sie leer, bleibt
+das bisherige Verhalten erhalten. Der bereits eingetragene Wert bleibt in der
+Eingabespalte erhalten; die Matching-Spalte `EGID` wird für diese Zeile nicht
+zusätzlich befüllt.
+
+Ein erneuter Import gleicht Prüffälle anhand der GVBSID mit der ausgewählten
+Zuordnungsdatenbank ab: Neue Fälle werden ergänzt, vorhandene Importangaben
+aktualisiert und gespeicherte manuelle Entscheidungen beibehalten. Fälle, die
+in der neuen Datei fehlen oder inzwischen automatisch beziehungsweise manuell
+zugeteilt sind, werden nicht automatisch entfernt oder abgeschlossen. Die
+Sperrliste wird bei erneutem Import ergänzt; zuvor gespeicherte Sperren werden
+nicht automatisch entfernt. Die App überwacht die Excel-Datei nicht; für neue
+Fälle ist ein erneuter Import erforderlich. Enthält die Matching-Datei keine
+importierbaren Prüffälle, meldet die App dies und führt keinen Import aus.
 
 Nach dem ersten regulären Matching wird ausschliesslich für die ursprünglichen
 `no_match`-Einträge einmal ohne Eingabe-PLZ gesucht. Strasse und Hausnummer samt
@@ -135,15 +176,17 @@ Zusatz steht kein Leerzeichen; vor der Postleitzahl stehen ein Komma und ein
 Leerzeichen. Die Spalte `EGID` enthält nur die
 automatisch zugeordnete EGID aus `perfect_match`, `super_match`,
 `oneEgid_oneAddress_multipleGVBSIDs`,
-`oneEgid_multipleAddresses_multipleGVBSIDs` oder `address_suffix_pair_ge4`.
+`oneEgid_multipleAddresses_multipleGVBSIDs`, `address_suffix_pair_ge4` oder
+`review_suffix_single_gvbsid_multiple_egid`.
 Bei der Paarregel erhält Gebäudenummer 1 die `.1`-EGID. Wenn mehrere GVBSIDs dieselbe
 EGID als einzigen Adresskandidaten haben, erhalten sie alle diese EGID,
 auch bei unterschiedlichen GVBS-Adressen, sofern mindestens eine EGRID
 vorhanden ist und kein Hausnummernzusatzkonflikt besteht. Bei Prüffällen
 und fehlenden Treffern bleibt die EGID leer.
 
-Die Kategorien werden sequentiell in dieser Reihenfolge geprüft. Die erste
-zutreffende Kategorie wird vergeben; jede Zeile erhält genau eine Kategorie.
+Jede Zeile erhält genau eine Kategorie. Nach der regulären Adressprüfung und
+einer allfälligen Paarprüfung haben `manuell_zugeteilt` und anschliessend
+`zuordnungskonflikt` Vorrang vor dem vorläufigen Ergebnis.
 
 Für die Suffixprüfung zählen ausschliesslich Punkt-Zahl-Zusätze wie `30.1`,
 `30.2` oder `30.12`. `30a`, `30A` und `30B` gelten als eigenständige Adressen
@@ -167,8 +210,9 @@ Beide Kubaturen müssen positive, endliche Zahlen sein. Fehlt eine Kubatur oder
 ist sie ungültig, bleibt das Paar in `review_address_suffix`. Dasselbe gilt bei
 mindestens drei Importzeilen zur Kontrollnummer und bei anderen Gebäudenummern.
 Einzelne Gebäude mit Nummer 0 erhalten gegebenenfalls die unten beschriebene
-eigene Prüfkategorie. Die Originaladressen und direkten EGID-Kandidaten bleiben
-erhalten. `Kubaturverhältnis 0/1`, `Zuordnungsadresse` und die Zusammenfassung
+eigene Kategorie mit automatischer Zuordnung des direkten Treffers. Die
+Originaladressen und direkten EGID-Kandidaten bleiben erhalten.
+`Kubaturverhältnis 0/1`, `Zuordnungsadresse` und die Zusammenfassung
 dokumentieren die Paarentscheidung. Beide neuen Kategorien erscheinen auch in
 den Kategorieblättern, Hinweisen und Statistiken. Die allgemeine Prüfreihenfolge
 vor der zusätzlichen Paarprüfung lautet:
@@ -217,7 +261,9 @@ Mit `--input` lässt sich eine andere Test-Eingabedatei festlegen.
 Die Ausgabe heisst dann immer
 `gebaeude_egid_matching_TEST.xlsx`. Sie liegt im Ordner von `--output` oder,
 ohne diese Option, im aktuellen Arbeitsverzeichnis. Der Start ohne Argumente
-unterstützt damit ebenfalls den Testlauf bei Dialogabbruch.
+unterstützt damit ebenfalls den Testlauf bei Dialogabbruch. Die Testausgabe
+wird ohne weiteren Speicherdialog geschrieben; ein vorhandener gleichnamiger
+Ausgabestand kann dabei überschrieben werden.
 
 Beispiel mit Platzhaltern für die bisherigen Testpfade:
 
@@ -318,7 +364,9 @@ bestimmt ausschliesslich für die Statistik diese Priorität die Hauptkategorie:
 9. `review_suffix_single_gvbsid_multiple_egid`
 10. `review_address_suffix`
 11. `invalid_gwr_data`
-12. `kein direkter Adresstreffer`
+12. `zuordnungskonflikt`
+13. `manuell_zugeteilt`
+14. `kein direkter Adresstreffer`
 
 Eine EGID zählt genau einmal als automatisch zugeordnet, als direkter
 Adresskandidat ohne automatische Zuordnung oder als EGID ohne direkten
@@ -329,3 +377,7 @@ gekennzeichnet und nicht zusätzlich zur Gesamtzahl addiert. Mit automatischer
 Paarzuordnung zählen sie zum automatischen Zustand, sonst zum Zustand ohne
 direkten Kandidaten. Nicht zugeordnete Zusatzbeziehungen stehen im Blatt
 `EGID-ohne-GVBSID`.
+
+Die Abdeckungsstatistik zählt ausschliesslich tatsächlich im Matching automatisch
+eingetragene EGIDs als automatisch zugeordnet. Ein Wert aus `EGID_zugeteilt`
+allein erhöht diesen automatischen Zähler nicht.
