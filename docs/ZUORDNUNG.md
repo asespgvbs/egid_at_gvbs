@@ -34,7 +34,9 @@ unverändert und unabhängig vom Zuordnungswerkzeug.
    unter 4 zur manuellen Prüfung. Das dritte Blatt enthält dunkelgelbe Prüffälle mit
    genau einer Importzeile `Kontrollnummer-0` an der Hauptadresse und einer oder
    mehreren zusätzlichen GWR-Suffixadressen. Diese Kontrollnummer kommt im
-   gesamten Import nur einmal vor; es erfolgt keine automatische Zuordnung.
+   gesamten Import nur einmal vor. In aktuellen Matching-Ausgaben wird der direkte
+   Treffer automatisch zugeteilt und nicht als Prüffall importiert. Ältere, nicht
+   automatisch zugeteilte Fälle bleiben importierbar.
    Die vollständige Kategorie heisst `review_suffix_single_gvbsid_multiple_egid`;
    der Blattname ist wegen der Excel-Grenze von 31 Zeichen verkürzt.
    Der alte Name `review_suffix_single_building` bleibt importierbar und wird
@@ -58,6 +60,12 @@ diese fertigen Ergebnisse einschliesslich `PLZ ursprünglich` und `PLZ korrigier
 Es führt selbst keine weitere PLZ-Korrekturrunde durch. Der Import verwendet die
 abschliessend über den gesamten Matching-Bestand neu berechneten Kategorien und
 automatischen EGID-Zuordnungen.
+
+Fälle der Kategorie `zuordnungskonflikt` werden ebenfalls zur Prüfung importiert.
+EGIDs aus der Eingabespalte `EGID_zugeteilt` sind wie automatische Zuteilungen
+für die manuelle Vergabe gesperrt. Die Kategorie `manuell_zugeteilt` wird nicht
+als neuer Prüffall importiert. Bereits in der Datenbank vorhandene Fälle werden
+beim erneuten Import nicht automatisch entfernt oder abgeschlossen.
 
 Für den Import wird die **vollständige Matching-Datei mit dem Blatt `Matching`**
 benötigt. Daraus übernimmt die App alle tatsächlich automatisch zugeteilten EGID

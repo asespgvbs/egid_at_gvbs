@@ -38,6 +38,10 @@ class MatchingContractTests(SyntheticMemory):
         fixture[3][900000050] = {"SYNTHETIC-AUTO-GRID"}
         fixture[4]["SYNTHETIC-AUTO-GRID"] = {900000050}
         results = matching.match(*fixture)
+        if single:
+            # Historische Matching-Ausgabe vor der automatischen Zuteilung.
+            results[0]["EGID"] = None
+            results[0]["Automatische Zuordnung"] = "Nein"
         workbook = matching.Workbook()
         self.addCleanup(workbook.close)
         # Nur der Dateizugriff ist ersetzt; Export und Import sind Produktionscode.
@@ -58,6 +62,55 @@ class MatchingContractTests(SyntheticMemory):
         for index, sheet in enumerate(workbook.worksheets):
             sheet.title = f"SYNTHETIC-TABLE-{index}"
 
+    def test_manual_assignment_is_reserved_and_conflict_is_imported(self):
+        fixture = synthetic_pair((None,), (0,))
+        fixture[0][0]["EGID_zugeteilt"] = "900000001; 900000010"
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OTHER", "EGID_zugeteilt": ""})
+        results = matching.match(*fixture)
+        self.assertEqual([row["Matching-Kategorie"] for row in results], ["manuell_zugeteilt", "zuordnungskonflikt"])
+        self.assertTrue(all(row["EGID"] is None and row["Automatische Zuordnung"] == "Nein" for row in results))
+        self.assertIn("900000001", results[1]["Matching-Zusammenfassung"])
+        workbook = matching.Workbook()
+        self.addCleanup(workbook.close)
+        with patch.object(matching, "Workbook", return_value=workbook), patch.object(workbook, "save"):
+            matching.save_excel(self.folder / "synthetic.xlsx", list(fixture[0][0]), results, fixture[0])
+        summary = {row[0].value: row for row in workbook["Zusammenfassung"].iter_rows(min_row=2)}
+        self.assertTrue(all(cell.fill.fgColor.rgb == "00FF0000" for cell in summary["zuordnungskonflikt"]))
+        self.assertEqual(workbook["manuell_zugeteilt"]["A2"].fill.fgColor.rgb, "00D9D9D9")
+        self.assertEqual(workbook["zuordnungskonflikt"]["A2"].fill.fgColor.rgb, "00FF0000")
+        destination = self.empty_store()
+        self.assertEqual(self.import_workbook(destination, workbook), 1)
+        self.assertEqual(destination.automatic_egids(), {"900000001", "900000010"})
+        record = destination.records()[0]
+        self.assertEqual(record["raw"]["Matching-Kategorie"], "zuordnungskonflikt")
+        with self.assertRaisesRegex(store.ReviewError, "zugeteilt"):
+            destination.save([{"gvbsid": record["gvbsid"], "version": record["version"],
+                               "assigned": ["900000001"]}], {"900000001"})
+
+    def test_reserved_suffix_prevents_automatic_pair_assignment(self):
+        fixture = synthetic_pair((400, 100))
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OWNER",
+                           "Hausnummer": 99, "EGID_zugeteilt": 900000002})
+        results = matching.match(*fixture)
+        self.assertEqual([row["Matching-Kategorie"] for row in results],
+                         ["zuordnungskonflikt", "zuordnungskonflikt", "manuell_zugeteilt"])
+        self.assertTrue(all(row["EGID"] is None for row in results))
+
+    def test_invalid_manual_egid_is_rejected(self):
+        fixture = synthetic_pair((None,), (0,))
+        for value in ("abc", "1.2", ",;", -1):
+            with self.subTest(value=value):
+                fixture[0][0]["EGID_zugeteilt"] = value
+                with self.assertRaisesRegex(ValueError, "EGID"):
+                    matching.match(*fixture)
+
+    def test_summary_does_not_color_zero_conflicts(self):
+        workbook, _, _ = self.workbook()
+        row = next(row for row in workbook["Zusammenfassung"].iter_rows(min_row=2)
+                   if row[0].value == "zuordnungskonflikt")
+        self.assertEqual(row[1].value, 0)
+        self.assertTrue(all(cell.fill.patternType is None for cell in row))
+
     def test_export_to_import_preserves_original_values_decisions_and_global_locks(self):
         workbook, _, _ = self.workbook()
         self.assertTrue(all(len(sheet.title) <= 31 for sheet in workbook))
@@ -74,7 +127,7 @@ class MatchingContractTests(SyntheticMemory):
         self.assertEqual((saved["assigned"], saved["status"], saved["comment"]),
                          (["900000001"], "Sonderfall", "Synthetisch geprüft"))
         self.assertEqual(saved["raw"], record["raw"])
-        with self.assertRaisesRegex(store.ReviewError, "automatisch zugeteilt"):
+        with self.assertRaisesRegex(store.ReviewError, "zugeteilt"):
             destination.save([{"gvbsid": saved["gvbsid"], "version": saved["version"],
                                "assigned": ["900000050"]}], {"900000050"})
 

@@ -71,7 +71,8 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(issues, [])
         self.assertEqual({row["Matching-Kategorie"] for row in matching},
                          {item[0] for item in gvbs.CATEGORIES}
-                         - {gvbs.SUFFIX_PAIR_AUTO, gvbs.SUFFIX_PAIR_REVIEW, gvbs.SUFFIX_SINGLE_REVIEW})
+                         - {gvbs.SUFFIX_PAIR_AUTO, gvbs.SUFFIX_PAIR_REVIEW, gvbs.SUFFIX_SINGLE_REVIEW,
+                            "manuell_zugeteilt", "zuordnungskonflikt"})
         self.assertEqual(len(rows), 14)
         self.assertEqual({row["EGID"] for row in rows}, set(range(1, 15)))
         categories, statuses = coverage.summarize_coverage(rows)

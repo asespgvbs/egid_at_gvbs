@@ -83,7 +83,7 @@ class SuffixPairTests(unittest.TestCase):
         self.assertEqual([row["EGID"] for row in results], [900000002, 900000001])
 
     def test_one_three_and_duplicate_import_rows_do_not_form_pairs(self):
-        for volumes, buildings in (((400,), (0,)), ((400, 100, 20), (0, 1, 2)),
+        for volumes, buildings in (((400, 100, 20), (0, 1, 2)),
                                    ((400, 100), (0, 0)), ((400, 100), (0, 2))):
             with self.subTest(buildings=buildings):
                 self.assert_review(synthetic_pair(volumes, buildings))
@@ -273,16 +273,18 @@ class SuffixPairTests(unittest.TestCase):
         self.assertEqual({row["gvbsid"] for row in records}, {
             "SYNTHETIC-SINGLE-2", "SYNTHETIC-PAIR-0", "SYNTHETIC-PAIR-1"})
 
-    def test_single_building_zero_with_one_or_multiple_suffixes_stays_unassigned(self):
+    def test_single_building_zero_assigns_direct_egid_and_documents_suffixes(self):
         for suffixes in (("12.1",), ("12.2",), ("12.1", "12.2", "12.3", "12.4")):
             with self.subTest(suffixes=suffixes):
                 fixture = synthetic_pair((None,), (0,), suffixes)
                 record = self.evaluate(fixture)[0]
                 self.assertEqual(record["Matching-Kategorie"], matching.SUFFIX_SINGLE_REVIEW)
-                self.assertIsNone(record["EGID"])
-                self.assertEqual(record["Automatische Zuordnung"], "Nein")
+                self.assertEqual(record["EGID"], 900000001)
+                self.assertEqual(record["Automatische Zuordnung"], "Ja")
                 self.assertEqual(record["Anzahl EGID mit Hausnummernzusatz"], len(suffixes))
                 self.assertIn("Gebäudenummer 0", record["Matching-Zusammenfassung"])
+                for egid in record["EGID mit Hausnummernzusatz"].split(", "):
+                    self.assertIn(egid, record["Matching-Zusammenfassung"])
                 self.assertNotIn("Kubaturverhältnis 0/1", record)
 
     def test_single_building_category_requires_building_zero(self):
@@ -332,25 +334,28 @@ class SuffixPairTests(unittest.TestCase):
         self.assertEqual(category, "review_suffix_single_gvbsid_multiple_egid")
         summary = {row[0]: row[1] for row in list(workbook["Zusammenfassung"].values)[1:]}
         self.assertEqual(summary[category], 1)
-        self.assertEqual(summary["Automatisch zugeordnet"], 0)
+        self.assertEqual(summary["Automatisch zugeordnet"], 1)
         outcome = list(workbook["Ergebnis"].values)
-        self.assertIsNone(outcome[1][outcome[0].index("EGID")])
+        self.assertEqual(outcome[1][outcome[0].index("EGID")], 900000001)
         rows, issues = abdeckung.analyze_coverage(set(fixture[2]), results, fixture[2], fixture[3])
         self.assertEqual(issues, [])
         categories, statuses = abdeckung.summarize_coverage(rows)
         self.assertEqual(categories[category], 1)
-        self.assertEqual(statuses[abdeckung.AUTOMATIC], 0)
-        self.assertEqual(statuses[abdeckung.DIRECT_ONLY], 1)
+        self.assertEqual(statuses[abdeckung.AUTOMATIC], 1)
+        self.assertEqual(statuses[abdeckung.DIRECT_ONLY], 0)
         self.assertEqual(statuses[abdeckung.NO_CANDIDATE], 2)
         letter = next(row for row in rows if row["EGID"] == 900000003)
         self.assertEqual(letter["Nur über Hausnummernzusatz erkannt"], "Nein")
         with patch.object(store, "load_workbook", return_value=workbook):
-            _, imported, _ = store.read_review_excel(Path("synthetic-not-created.xlsx"))
-        self.assertEqual([row["gvbsid"] for row in imported], ["SYNTHETIC-PAIR-0"])
+            with self.assertRaises(store.ReviewError):
+                store.read_review_excel(Path("synthetic-not-created.xlsx"))
 
     def test_single_category_sheet_can_be_imported_on_its_own(self):
         fixture = synthetic_pair((None,), (0,))
         workbook = self.workbook(fixture, self.evaluate(fixture))
+        sheet = workbook[matching.CATEGORY_SHEET_TITLES[matching.SUFFIX_SINGLE_REVIEW]]
+        headers = [cell.value for cell in sheet[1]]
+        sheet.cell(2, headers.index("Automatische Zuordnung") + 1, "Nein")
         for name in list(workbook.sheetnames):
             if name != matching.CATEGORY_SHEET_TITLES[matching.SUFFIX_SINGLE_REVIEW]:
                 del workbook[name]

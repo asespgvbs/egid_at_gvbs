@@ -31,6 +31,7 @@ function recordCategory(record) {
   const color = typeof hex === "string" && /^[a-f\d]{6}$/i.test(hex) ? "#" + hex : null;
   const labels = {
     review_address_suffix: "Adress-Suffix · Allgemeine Prüfung",
+    zuordnungskonflikt: "Zuordnungskonflikt · Manuell prüfen",
     address_suffix_pair_lt4: "Adress-Suffix-Paar · Manuell prüfen",
     address_suffix_pair_ge4: "Adress-Suffix-Paar · Automatisch zugeordnet",
     review_suffix_single_gvbsid_multiple_egid: "Eine GVBSID mit mehreren EGIDs · Manuell prüfen",
@@ -589,7 +590,7 @@ function renderCase() {
   const lockNote = $("assignment-lock-note");
   lockNote.hidden = Boolean(current.automatic_assignments_loaded && current.egrids.length && !current.blocked_egids?.length);
   lockNote.textContent = !current.automatic_assignments_loaded
-    ? "Bitte die vollständige Matching-Datei importieren. Ohne die Liste automatischer Zuordnungen bleibt die Vergabe gesperrt."
+    ? "Bitte die vollständige Matching-Datei importieren. Ohne die Liste bereits vergebener EGID bleibt die Vergabe gesperrt."
     : !current.egrids.length ? "Die EGRID ist noch nicht verlässlich bekannt. Paketaktionen sind erst nach Klärung der EGRID möglich."
     : "Graue EGID sind bereits automatisch zugeteilt und können nicht erneut vergeben werden.";
   const table = node("table"), head = node("thead"), headings = node("tr");
@@ -604,7 +605,7 @@ function renderCase() {
     const addresses = [...new Set((current.geo?.buildings || []).filter(building => building.egid === egid).flatMap(gwrAddresses))];
     const addressFallback = current.geo ? "GWR-Adresse nicht verfügbar" : "GWR-Adresse wird geladen …";
     th.append(button, gwrAddressLinks(addresses, addressFallback)); headings.append(th);
-    if (isBlockedEgid(egid)) th.append(node("span", "Automatisch zugeteilt · gesperrt", "egid-lock-label"));
+    if (isBlockedEgid(egid)) th.append(node("span", "Bereits zugeteilt · gesperrt", "egid-lock-label"));
   }
   head.append(headings); table.append(head);
   const body = node("tbody");
@@ -633,7 +634,7 @@ function renderCase() {
     const conflicts = record.assigned.filter(isBlockedEgid);
     if (conflicts.length) {
       const note = node("div", undefined, "assignment-conflict");
-      note.append(node("p", `Gespeicherte Zuordnung steht im Konflikt mit automatischer Zuteilung: ${conflicts.join(", ")}.`));
+      note.append(node("p", `Gespeicherte Zuordnung steht im Konflikt mit bereits zugeteilter EGID: ${conflicts.join(", ")}.`));
       const remove = node("button", "Gesperrte Zuordnung entfernen", "secondary");
       remove.type = "button"; remove.dataset.removeBlocked = "true";
       remove.addEventListener("click", () => {
@@ -879,7 +880,7 @@ function selectEgid(egid) {
   const addressText = addresses.length ? `GWR: ${addresses.join("; ")}` : `GWR: ${addressStatus?.code === "unreachable" ? addressStatus.message : "Keine Adresse zur EGID im GWR gefunden."}`;
   const statuses = [...new Set(buildings.map(value => value.gstat).filter(Boolean))];
   const volumeText = ReviewEgidPoints.volumeText(gwrVolume(egid));
-  $("egid-details").textContent = `EGID ${egid}${volumeText ? " · " + volumeText : ""}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}${isBlockedEgid(egid) ? "\nAutomatisch zugeteilt · Für manuelle Vergabe gesperrt" : ""}`;
+  $("egid-details").textContent = `EGID ${egid}${volumeText ? " · " + volumeText : ""}\n${addressText}\nGSTAT ${statuses.join(", ") || "unbekannt"}${isBlockedEgid(egid) ? "\nBereits zugeteilt · Für manuelle Vergabe gesperrt" : ""}`;
 }
 
 async function loadGeo() {

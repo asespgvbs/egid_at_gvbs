@@ -8,7 +8,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .common import txt
+from .common import txt, egid_text, identifiers
 # ============================================================
 # KONFIGURATION
 # ============================================================
@@ -99,7 +99,7 @@ CATEGORIES = [
         "einen eindeutigen direkten EGID-Treffer und auf derselben EGRID eine "
         "oder mehrere zusätzliche EGIDs mit Punkt-Zahl-Zusätzen (z. B. .1, .2), für deren "
         "Adressen keine eigene GVBSID im Import steht.",
-        "Keine automatische EGID-Zuordnung, unabhängig von der Kubatur. Manuell prüfen.",
+        "Der direkte EGID-Treffer wird automatisch zugeordnet; Suffix-EGIDs bleiben unzugeordnet.",
     ),
     (
         "review_address_suffix",
@@ -141,15 +141,28 @@ CATEGORIES = [
         "Mindestens ein Pflichtfeld fehlt.",
         "Eingabedaten korrigieren.",
     ),
+    (
+        "manuell_zugeteilt",
+        "In der Eingabespalte EGID_zugeteilt ist bereits mindestens eine EGID hinterlegt.",
+        "Keine weitere automatische Zuordnung; vorhandene Zuteilung bleibt erhalten.",
+    ),
+    (
+        "zuordnungskonflikt",
+        "Mindestens eine direkte oder Suffix-EGID ist bereits in EGID_zugeteilt eingetragen.",
+        "Keine automatische Zuordnung; Konflikt manuell prüfen.",
+    ),
 ]
 AUTO_CATEGORIES = {
     SUFFIX_PAIR_AUTO,
+    SUFFIX_SINGLE_REVIEW,
     "perfect_match",
     "super_match",
     "oneEgid_oneAddress_multipleGVBSIDs",
     "oneEgid_multipleAddresses_multipleGVBSIDs",
 }
 CATEGORY_COLORS = {
+    "manuell_zugeteilt": "D9D9D9",
+    "zuordnungskonflikt": "FF0000",
     SUFFIX_PAIR_AUTO: "C4A484",
     SUFFIX_PAIR_REVIEW: "F4B183",
     SUFFIX_SINGLE_REVIEW: "E6C200",
@@ -685,7 +698,7 @@ def create_summary(
         single_building = (
             " An der Hauptadresse steht ausschliesslich diese GVBSID mit Gebäudenummer 0; "
             "ihre Kontrollnummer kommt im gesamten Import genau einmal vor. "
-            "Keine automatische EGID-Zuordnung."
+            "Der direkte EGID-Treffer wird automatisch zugeordnet; die Suffix-EGIDs bleiben unzugeordnet."
             if category == SUFFIX_SINGLE_REVIEW else ""
         )
         return (
@@ -770,6 +783,17 @@ def match(records, addr_egids, egid_addresses, egid_grids, grid_egids, *, postal
     return results
 
 
+def manual_egids(value):
+    """Validiert vorhandene EGID-Zuteilungen ohne Datenzugriff."""
+    tokens = identifiers(value)
+    if txt(value) and not tokens:
+        raise ValueError("EGID_zugeteilt muss positive EGIDs enthalten, getrennt durch Komma, Semikolon oder Zeilenumbruch.")
+    try:
+        return {egid_text(token) for token in tokens}
+    except ValueError as error:
+        raise ValueError("Ungültige EGID in EGID_zugeteilt; erwartet werden positive ganze Zahlen.") from error
+
+
 def _match_regular(
     records,
     addr_egids,
@@ -781,6 +805,8 @@ def _match_regular(
         {COLUMN_ALIASES.get(column, column): value for column, value in record.items()}
         for record in records
     ]
+    manual_assignments = [manual_egids(record.get("EGID_zugeteilt")) for record in matching_records]
+    reserved = set().union(*manual_assignments)
     # --------------------------------------------------------
     # GVBS-ADRESSEN UND GVBSIDs AUFBEREITEN
     # --------------------------------------------------------
@@ -1060,6 +1086,24 @@ def _match_regular(
         })
     apply_suffix_pairs(matching_records, keys, gvbs_keys, results, conflicts_by_row,
                        addr_egids, gvbs_by_egid, egid_addresses, egid_grids, grid_egids)
+    for result, own in zip(results, manual_assignments, strict=True):
+        candidates = {egid_text(value) for name in ("EGID-Kandidaten", "EGID mit Hausnummernzusatz")
+                      for value in identifiers(result.get(name))}
+        conflict = candidates & reserved
+        if own:
+            result["Matching-Kategorie"] = "manuell_zugeteilt"
+            explanation = "Bereits manuell zugeteilt: " + ", ".join(sorted(own, key=int)) + ". Keine weitere automatische Zuordnung."
+        elif conflict:
+            result["Matching-Kategorie"] = "zuordnungskonflikt"
+            explanation = "Bereits bei einer anderen GVBSID manuell zugeteilte EGID: " + ", ".join(sorted(conflict, key=int)) + ". Keine automatische Zuordnung; manuell prüfen."
+        else:
+            continue
+        result["Matching-Zusammenfassung"] = (explanation + " Direkte EGID-Kandidaten: "
+            + (result["EGID-Kandidaten"] or "keine") + ". Suffix-EGID-Kandidaten: "
+            + (result["EGID mit Hausnummernzusatz"] or "keine") + ".")
+        result["EGID"] = None
+        result["Automatische Zuordnung"] = "Nein"
+        result.pop("Zuordnungsadresse", None)
     return results
 # ============================================================
 # EXCEL-AUSGABE
@@ -1376,6 +1420,8 @@ def save_excel(path, headers, results, records):
     ):
         for row in sheet.iter_rows(min_row=2):
             fill_color = CATEGORY_COLORS.get(row[category_column].value)
+            if sheet is summary and row[category_column].value == "zuordnungskonflikt" and not row[1].value:
+                fill_color = None
             if fill_color:
                 for cell in row:
                     cell.fill = PatternFill(

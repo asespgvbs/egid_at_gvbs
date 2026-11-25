@@ -81,6 +81,17 @@ Die ursprünglichen Werte bleiben im Import erhalten. Die bisherigen Namen
 `Gebäude (Nr.)`, `Strassennamen`, `Nr.` und `PLZ` werden weiterhin akzeptiert.
 Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
 
+Die optionale Eingabespalte `EGID_zugeteilt` darf an beliebiger Stelle stehen.
+Sie enthält bereits manuell vergebene positive EGIDs; mehrere Werte werden durch
+Komma, Semikolon oder Zeilenumbruch getrennt. Ungültige Einträge führen zu einem
+Fehler. Eine Zeile mit Eintrag erhält `manuell_zugeteilt` und keine weitere
+automatische Zuteilung. Betrifft eine solche EGID bei einer anderen Zeile einen
+direkten oder Suffix-Kandidaten, erhält diese `zuordnungskonflikt` und keine
+automatische Zuteilung. Die Konflikte werden im Zuordnungstool zur Prüfung geladen;
+die bereits vergebenen EGIDs sind dort gesperrt. Fehlt die Spalte oder ist sie
+leer, bleibt das bisherige Verhalten erhalten. Bereits in einer Zuordnungsdatenbank
+gespeicherte Fälle werden beim erneuten Import nicht automatisch entfernt.
+
 Nach dem ersten regulären Matching wird ausschliesslich für die ursprünglichen
 `no_match`-Einträge einmal ohne Eingabe-PLZ gesucht. Strasse und Hausnummer samt
 Zusatz müssen nach derselben Normalisierung wie im regulären Matching exakt
@@ -169,7 +180,7 @@ vor der zusätzlichen Paarprüfung lautet:
 | 3 | `multiple_egid` | Nein |
 | 4 | `multiple_gvbsid_multiple_egid` | Nein |
 | 5 | `invalid_gwr_data` | Nein |
-| 6 | `review_suffix_single_gvbsid_multiple_egid` | Nein |
+| 6 | `review_suffix_single_gvbsid_multiple_egid` | Ja, direkter Treffer |
 | 7 | `review_address_suffix` | Nein |
 | 8 | `perfect_match` | Ja |
 | 9 | `super_match` | Ja |
@@ -182,12 +193,13 @@ kein weiteres Mal vorkommen, auch nicht mit Gebäudenummer 1 an einer anderen
 Adresse. Der eindeutige Hauptadress-Treffer hat auf derselben EGRID eine oder
 mehrere zusätzliche EGIDs mit Suffixadressen, für die keine eigene GVBSID
 importiert wurde. Nur Punkt-Zahl-Zusätze sind zulässig; die Anzahl
-der Zusätze ist nicht begrenzt. Es erfolgt **keine automatische EGID-Zuordnung**,
-unabhängig von der Kubatur. Die Kategorie wird separat in Excel und der
-EGID-Abdeckung ausgewiesen und kann in die Zuordnungsapp importiert werden.
+der Zusätze ist nicht begrenzt. Der direkte EGID-Treffer wird unabhängig von der
+Kubatur automatisch zugeordnet. Die Suffix-EGIDs bleiben unzugeordnet und werden
+weiterhin in der Matching-Zusammenfassung aufgeführt. Die Kategorie wird separat
+in Excel und der EGID-Abdeckung ausgewiesen.
 Das Excel-Blatt heisst wegen der Grenze von 31 Zeichen `review_suffix_1gvbsid_n_egid`.
-Die Zuordnungsapp erkennt weiterhin den alten Namen `review_suffix_single_building`
-und zeigt beide Kategorien als **Eine GVBSID mit mehreren EGIDs · Manuell prüfen** an.
+Ältere, noch nicht automatisch zugeordnete Fälle dieser Kategorie bleiben in der
+Zuordnungsapp importierbar; der alte Name `review_suffix_single_building` wird erkannt.
 
 Fehlende EGRID und Hausnummernzusatzkonflikte verhindern damit auch bei
 mehreren GVBSIDs eine automatische Zuordnung. `perfect_match` und

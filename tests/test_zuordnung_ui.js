@@ -196,7 +196,7 @@ async function runReviewUiTest(sources) {
   const lockedTable = elements.matrix.children[0], lockedHeader = lockedTable.children[0].children[0];
   const lockedCell = lockedTable.children[1].children[0].children[1], lockedInput = lockedCell.children[0];
   check(lockedHeader.children[1].classList.contains("egid-locked") && lockedCell.classList.contains("egid-locked"), "Automatisch zugeteilte Spalten und Zellen als gesperrt kennzeichnen");
-  check(lockedInput.disabled && lockedHeader.children[1].textContent.includes("Automatisch zugeteilt"), "Gesperrte EGID deaktivieren und die Sperre erklären");
+  check(lockedInput.disabled && lockedHeader.children[1].textContent.includes("Bereits zugeteilt"), "Gesperrte EGID deaktivieren und die Sperre erklären");
   lockedInput.checked = true; lockedInput.events.change();
   check(!lockedInput.checked && locked.records[0].assigned.length === 0, "Auch ein künstliches Änderungsereignis kann keine gesperrte EGID vergeben");
   ui.renderGeo();

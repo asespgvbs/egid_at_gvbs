@@ -26,6 +26,8 @@ CATEGORY_PRIORITY = (
     gvbs.SUFFIX_SINGLE_REVIEW,
     "review_address_suffix",
     "invalid_gwr_data",
+    "zuordnungskonflikt",
+    "manuell_zugeteilt",
     NO_DIRECT_MATCH,
 )
 AUTOMATIC = "Automatisch zugeordnet"
@@ -316,6 +318,8 @@ def save_coverage_excel(path, rows, issues):
     for cells in summary.iter_rows(min_row=2):
         cells[2].number_format = "0.00%"
         color = gvbs.CATEGORY_COLORS.get(cells[0].value)
+        if cells[0].value == "zuordnungskonflikt" and not cells[1].value:
+            color = None
         if color:
             for cell in cells:
                 cell.fill = PatternFill("solid", fgColor=color)

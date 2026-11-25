@@ -23,7 +23,7 @@ SHEET = "review_address_suffix"
 PRODUCT = "egid-match-manual-review"
 AUTOMATIC_SHEET = "Automatische Zuordnungen"
 AUTOMATIC_META = "automatic_egids"
-REVIEW_CATEGORIES = (SHEET, matching.SUFFIX_PAIR_REVIEW, matching.SUFFIX_SINGLE_REVIEW)
+REVIEW_CATEGORIES = (SHEET, matching.SUFFIX_PAIR_REVIEW, matching.SUFFIX_SINGLE_REVIEW, "zuordnungskonflikt")
 MATCHING_COLUMNS = {"GVBSID", "Matching-Kategorie", "EGID", "Automatische Zuordnung", "EGID-Kandidaten"}
 
 
@@ -159,10 +159,12 @@ def read_automatic_egids(workbook, matching_name=None):
             raise ReviewError("Das Blatt Matching benötigt eindeutige Spalten EGID, Automatische Zuordnung und Matching-Kategorie.")
         for row in rows:
             fields = dict(zip(headers, row))
+            blocked.update(matching.manual_egids(fields.get("EGID_zugeteilt")))
             egid = matching.txt(fields.get("EGID"))
             automatic = matching.txt(fields.get("Automatische Zuordnung")) == "Ja"
             category = matching.category_name(fields.get("Matching-Kategorie"))
-            if not egid and not automatic and category not in matching.AUTO_CATEGORIES:
+            if not egid and not automatic and (category not in matching.AUTO_CATEGORIES
+                                               or category == matching.SUFFIX_SINGLE_REVIEW):
                 continue
             if not egid or not automatic or category not in matching.AUTO_CATEGORIES:
                 raise ReviewError("Das Blatt Matching enthält eine widersprüchliche automatische EGID-Zuordnung.")
@@ -222,6 +224,11 @@ def read_review_excel(path):
             if not values:
                 raise ReviewError("Das Gesamtblatt enthält keine Adress-Suffix-Prüffälle. "
                                   "Automatisch zugeteilte Fälle werden nicht als Prüffälle importiert.")
+        # Ältere Exporte dieser Kategorie bleiben als manuelle Prüffälle importierbar.
+        normalized_headers = [matching.txt(value) for value in headers]
+        if "Automatische Zuordnung" in normalized_headers:
+            auto_index = normalized_headers.index("Automatische Zuordnung")
+            values = [row for row in values if len(row) <= auto_index or matching.txt(row[auto_index]) != "Ja"]
         headers, prepared = prepare_rows(headers, values)
         return headers, prepared, read_automatic_egids(workbook, matching_name)
     finally:
@@ -375,7 +382,7 @@ class ReviewStore:
                     raise ReviewError("Die Zuordnung muss eine Liste von EGID sein.")
                 assigned = {egid_text(value) for value in values}
                 if assigned & blocked:
-                    raise ReviewError("Diese EGID sind bereits automatisch zugeteilt und für manuelle Zuordnungen gesperrt: "
+                    raise ReviewError("Diese EGID sind bereits automatisch zugeteilt oder manuell vergeben und für weitere Zuordnungen gesperrt: "
                                       + ", ".join(sorted(assigned & blocked, key=int)))
                 if not assigned <= set(allowed_egids):
                     raise ReviewError("Eine EGID gehört nicht zu den verfügbaren Kandidaten oder verlässlich geladenen Geodaten.")

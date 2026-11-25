@@ -307,10 +307,11 @@ class CategoryPriorityTests(unittest.TestCase):
                     self.assertEqual(result["Matching-Kategorie"], category)
                     self.assertEqual(result["EGID"], 900000001 if automatic else None)
                     self.assertEqual(result["Automatische Zuordnung"], "Ja" if automatic else "Nein")
-        self.assertEqual(app.AUTO_CATEGORIES - {app.SUFFIX_PAIR_AUTO}, {case[3] for case in cases if case[4]})
+        self.assertEqual(app.AUTO_CATEGORIES - {app.SUFFIX_PAIR_AUTO, app.SUFFIX_SINGLE_REVIEW}, {case[3] for case in cases if case[4]})
         self.assertEqual({case[3] for case in cases},
                          {name for name, _, _ in app.CATEGORIES}
-                         - {app.SUFFIX_PAIR_AUTO, app.SUFFIX_PAIR_REVIEW, app.SUFFIX_SINGLE_REVIEW})
+                         - {app.SUFFIX_PAIR_AUTO, app.SUFFIX_PAIR_REVIEW, app.SUFFIX_SINGLE_REVIEW,
+                            "manuell_zugeteilt", "zuordnungskonflikt"})
 
     def test_missing_grid_precedes_both_multiple_gvbs_categories(self):
         for numbers in (["10", "10"], ["10", "12"], ["10", "10", "12"]):
