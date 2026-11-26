@@ -16,7 +16,8 @@ let geoRequestId = 0;
 let egidRenderer = null;
 let flashTimer = null, flashEgid = null, flashGeneration = null;
 let selectionTimer = null;
-const DEFAULT_MAP_ZOOM = 19;
+const DEFAULT_MAP_ZOOM = 21;
+const MAP_MAX_ZOOM = 22;
 const numericIds = new Intl.Collator("de-CH", {numeric: true});
 
 function node(tag, text, className) {
@@ -804,12 +805,17 @@ function maskParcels(parcels) {
   L.polygon([outer, ...polygons.flatMap(polygon => polygon.map(latlng))], {...style, fillRule: "evenodd"}).addTo(mapLayers.mask);
 }
 
+function fitParcelBounds(bounds) {
+  map.fitBounds(bounds, {maxZoom: DEFAULT_MAP_ZOOM - 2, padding: [28, 28], animate: false});
+  map.setZoom(Math.min(map.getZoom() + 2, MAP_MAX_ZOOM), {animate: false});
+}
+
 function focusParcel(egrid) {
   if (!map || !current?.geo) return;
   const parcel = current.geo.parcels.find(value => (value.key || value.egrid) === egrid);
   maskParcels(parcel ? [parcel] : []);
   for (const layer of mapLayers.parcels.getLayers()) layer.setStyle({color: layer.options.reviewEgrid === egrid ? "#cf6a19" : "#3c7d86", weight: layer.options.reviewEgrid === egrid ? 4 : 2});
-  if (parcel) map.fitBounds(L.geoJSON(parcel.geometry).getBounds(), {maxZoom: DEFAULT_MAP_ZOOM, padding: [28, 28]});
+  if (parcel) fitParcelBounds(L.geoJSON(parcel.geometry).getBounds());
 }
 
 function renderGeo() {
@@ -826,7 +832,7 @@ function renderGeo() {
   if (geo.parcels.length === 1) focusParcel(geo.parcels[0].key || geo.parcels[0].egrid);
   else if (geo.parcels.length > 1) {
     maskParcels(geo.parcels);
-    map.fitBounds(allBounds, {maxZoom: DEFAULT_MAP_ZOOM, padding: [28, 28]});
+    fitParcelBounds(allBounds);
   } else {
     const reason = geo.sources?.parcels?.message;
     $("egid-details").textContent = `Keine Parzellengrenze verfügbar.${reason ? " " + reason : ""}`;

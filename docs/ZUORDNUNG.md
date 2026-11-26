@@ -386,8 +386,9 @@ EGID-Zuordnung.
 
 Polygon, MultiPolygon und Innenringe werden geprueft. Die geladenen Parzellen bleiben
 hell, ihr Aussenbereich wird abgedunkelt. Der Ausschnitt zeigt die Parzellen
-mit etwas Rand, bis maximal Zoomstufe 19; grosse Grundstücke werden passend
-herausgezoomt. Grenze und Abdunkelung bleiben von EGID-Beschriftungen unabhängig.
+mit etwas Rand und zoomt danach zwei Stufen näher, höchstens bis Zoomstufe 22.
+Dadurch können Teile grosser Grundstücke ausserhalb des sichtbaren Ausschnitts
+liegen. Grenze und Abdunkelung bleiben von EGID-Beschriftungen unabhängig.
 Mehrere EGID werden nach Kennung
 zusammengefuehrt, ohne unterschiedliche bekannte Positionen zu verlieren.
 Eine raeumlich abgeleitete Beziehung wird ausdruecklich gekennzeichnet;

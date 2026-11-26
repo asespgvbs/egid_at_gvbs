@@ -40,7 +40,7 @@ async function runReviewUiTest(sources) {
   const window = {addEventListener() {}, setTimeout(callback, delay) {const id = ++nextTimer; timers.set(id, {callback, delay}); return id;}, clearTimeout(id) {timers.delete(id);}, innerWidth: 1200, innerHeight: 800, requestAnimationFrame(callback) {callback();}};
   function group() {return {layers: [], clearLayers() {this.layers = [];}, getLayers() {return this.layers;}};}
   const viewCalls = [];
-  const map = {getZoom() {return 19;}, setView(...args) {viewCalls.push(args);}, fitBounds(...args) {viewCalls.push(["fitBounds", ...args]);}, invalidateSize() {}};
+  const map = {getZoom() {return 19;}, setView(...args) {viewCalls.push(args);}, fitBounds(...args) {viewCalls.push(["fitBounds", ...args]);}, setZoom(...args) {viewCalls.push(["setZoom", ...args]);}, invalidateSize() {}};
   function bounds() {return {extend() {return this;}, isValid() {return true;}, getCenter() {return {lat: 47.52, lng: 7.55};}};}
   function layer(options = {}) {return {options, events: {}, appliedStyle: {}, addTo(target) {target.layers.push(this); return this;}, on(event, callback) {this.events[event] = callback; return this;}, setStyle(style) {Object.assign(this.appliedStyle, style);}, getBounds: bounds, bindTooltip() {throw new Error("Unerwartete Karten-Hoverinfo");}};}
   const L = {
@@ -118,8 +118,9 @@ async function runReviewUiTest(sources) {
   ui.renderGeo();
   check(layers.parcels.layers.length === 1 && layers.parcels.layers[0].options.pane === "parcel-boundaries", "Parzellengrenze in eigener Ebene darstellen");
   check(layers.mask.layers.length === 1 && layers.mask.layers[0].options.pane === "parcel-mask", "Abdunkelung getrennt von Grenzen und Gebäuden darstellen");
-  check(viewCalls[viewCalls.length - 1][0] === "fitBounds" && viewCalls[viewCalls.length - 1][2].maxZoom === 19, "Auch eine einzelne grosse Parzelle vollständig zeigen und Zoom 19 als Obergrenze erhalten");
-  check(viewCalls[viewCalls.length - 1][2].padding[0] > 0, "Rand für die Abdunkelung um die Parzelle freihalten");
+  check(viewCalls[viewCalls.length - 2][0] === "fitBounds" && viewCalls[viewCalls.length - 2][2].maxZoom === 19 && viewCalls[viewCalls.length - 1][1] === 21,
+    "Parzellenausschnitt bestimmen und anschliessend zwei Stufen näher zoomen");
+  check(viewCalls[viewCalls.length - 2][2].padding[0] > 0, "Den ursprünglichen Parzellenausschnitt mit Rand bestimmen");
   check(layers.labels.layers.length === 2, "Beide EGID auf der Karte beschriften");
   check(layers.labels.layers[0].options.icon.html.textContent === "101 - GWR-Testgasse 9a 0000 · 2400 m³", "Kartenbeschriftung enthält EGID, Originaladresse und GVOL");
   check(layers.labels.layers[1].options.icon.html.textContent === "102 - GWR-Adresse nicht verfügbar", "Fehlende GWR-Adresse auch auf der Karte kenntlich machen");
@@ -154,7 +155,8 @@ async function runReviewUiTest(sources) {
   ui.renderGeo();
   check(layers.parcels.layers.length === 2, "Alle Parzellengrenzen erhalten");
   check(layers.mask.layers.length === 1 && layers.mask.layers[0].coordinates.length === 3, "Auch bei mehreren Parzellen den gemeinsamen Aussenbereich abdunkeln");
-  check(viewCalls[viewCalls.length - 1][0] === "fitBounds", "Mehrere Parzellen gemeinsam im Ausschnitt zeigen");
+  check(viewCalls[viewCalls.length - 2][0] === "fitBounds" && viewCalls[viewCalls.length - 1][1] === 21,
+    "Auch mehrere Parzellen gemeinsam zentrieren und zwei Stufen näher zoomen");
   const hole = [[7.55,47.51],[7.56,47.51],[7.56,47.52],[7.55,47.52],[7.55,47.51]];
   const withHole = {...value, geo: {...value.geo, parcels: [{...value.geo.parcels[0], geometry: {type: "Polygon", coordinates: [...value.geo.parcels[0].geometry.coordinates, hole]}}]}};
   ui.configure(withHole, map, layers);
