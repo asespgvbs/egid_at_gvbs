@@ -97,8 +97,10 @@ Excel-Eingabedatei. Danach fragt ein Speicherdialog nach dem Ausgabeort und
 Dateinamen. Der vorgeschlagene Dateiname ist `gebaeude_egid_matching.xlsx`.
 Vor dem Überschreiben einer vorhandenen Datei fragt der Speicherdialog nach.
 
-Das erste Tabellenblatt der Eingabe enthält diese Spaltennamen. Ihre Reihenfolge
-ist frei; weitere Spalten dürfen an beliebiger Stelle stehen:
+Das Tabellenblatt **`Lieferung GVBS`** der Eingabe enthält diese Spaltennamen.
+Es wird unabhängig vom aktiven Blatt gelesen; fehlt es, wird der Vorgang mit
+einer Fehlermeldung abgebrochen. Dieselbe Blattauswahl gilt für die EGID-Abdeckung.
+Die Reihenfolge der Spalten ist frei; weitere Spalten dürfen an beliebiger Stelle stehen:
 
 | Kontrollnummer | Gebäudenummer | Strasse | Hausnummer | Hausnummer Zusatz | Postleitzahl |
 | --- | --- | --- | --- | --- | --- |

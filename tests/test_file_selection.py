@@ -5,7 +5,7 @@ import io
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,13 +152,35 @@ class InputColumnTests(unittest.TestCase):
                 "Postleitzahl": "0000",
             }
             values = [synthetic_values.get(app.COLUMN_ALIASES.get(column, column)) for column in headers]
-        workbook = Mock()
-        workbook.active.iter_rows.return_value = iter([
+        workbook = MagicMock()
+        workbook.sheetnames = [app.INPUT_SHEET]
+        workbook[app.INPUT_SHEET].iter_rows.return_value = iter([
             headers,
             values,
         ])
         with patch.object(app, "load_workbook", return_value=workbook):
             return app.read_excel(Path("synthetic/input.xlsx"))
+
+    def test_reads_named_sheet_even_if_another_sheet_is_active(self):
+        workbook = app.Workbook()
+        self.addCleanup(workbook.close)
+        workbook.active.title = "SYNTHETIC-ACTIVE"
+        workbook.active.append(["SYNTHETIC-NOT-THE-INPUT"])
+        sheet = workbook.create_sheet(app.INPUT_SHEET)
+        sheet.append(list(app.REQUIRED))
+        sheet.append(["SYNTHETIC-1", "0", "Teststrasse", "1", "", "0000"])
+        with patch.object(app, "load_workbook", return_value=workbook):
+            headers, records = app.read_excel(Path("synthetic-not-created.xlsx"))
+        self.assertEqual(headers, list(app.REQUIRED))
+        self.assertEqual(records[0]["Kontrollnummer"], "SYNTHETIC-1")
+
+    def test_missing_named_sheet_reports_error_and_closes_workbook(self):
+        workbook = MagicMock()
+        workbook.sheetnames = ["SYNTHETIC-OTHER"]
+        with patch.object(app, "load_workbook", return_value=workbook):
+            with self.assertRaisesRegex(ValueError, "Lieferung GVBS"):
+                app.read_excel(Path("synthetic-not-created.xlsx"))
+        workbook.close.assert_called_once()
 
     def test_new_and_legacy_headers_produce_same_matching_result(self):
         new_headers = ["Kontrollnummer", "Gebäudenummer", "Strasse", "Hausnummer", "Hausnummer Zusatz", "Postleitzahl"]

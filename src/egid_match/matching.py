@@ -19,6 +19,7 @@ DEFAULT_TEST_INPUT = Path.cwd() / "data" / "test_match_data.xlsx"
 DEFAULT_OUTPUT = Path("gebaeude_egid_matching.xlsx")
 TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
 BASEL_STADT_MUNICIPALITIES = (2701, 2702, 2703)  # Basel, Bettingen, Riehen (BFS).
+INPUT_SHEET = "Lieferung GVBS"
 REQUIRED = (
     "Kontrollnummer",
     "Gebäudenummer",
@@ -553,7 +554,9 @@ def read_excel(path):
         data_only=True,
     )
     try:
-        rows = wb.active.iter_rows(values_only=True)
+        if INPUT_SHEET not in wb.sheetnames:
+            raise ValueError(f"Das Tabellenblatt '{INPUT_SHEET}' fehlt in der Eingabedatei.")
+        rows = wb[INPUT_SHEET].iter_rows(values_only=True)
         first = next(rows, None)
         if first is None:
             raise ValueError(
