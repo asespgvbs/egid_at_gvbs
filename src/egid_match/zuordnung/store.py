@@ -97,7 +97,7 @@ def _sheet_name(workbook, title):
 def _summary_counts(headers, rows):
     """Nur die vom Matching exportierte Kategorienbilanz als Vollständigkeitsbeleg."""
     category_index, count_index = headers.index("Kategorie"), headers.index("Anzahl")
-    categories = {category for category, _, _ in matching.CATEGORIES}
+    categories = {category for category, _, _ in matching.CATEGORIES} | {"zuordnungskonflikt"}
     counts, total = Counter(), None
     for row in rows:
         if len(row) <= max(category_index, count_index):
@@ -159,7 +159,6 @@ def read_automatic_egids(workbook, matching_name=None):
             raise ReviewError("Das Blatt Matching benötigt eindeutige Spalten EGID, Automatische Zuordnung und Matching-Kategorie.")
         for row in rows:
             fields = dict(zip(headers, row))
-            blocked.update(matching.manual_egids(fields.get("EGID_zugeteilt")))
             egid = matching.txt(fields.get("EGID"))
             automatic = matching.txt(fields.get("Automatische Zuordnung")) == "Ja"
             category = matching.category_name(fields.get("Matching-Kategorie"))

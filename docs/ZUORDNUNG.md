@@ -61,10 +61,12 @@ Es führt selbst keine weitere PLZ-Korrekturrunde durch. Der Import verwendet di
 abschliessend über den gesamten Matching-Bestand neu berechneten Kategorien und
 automatischen EGID-Zuordnungen.
 
-Fälle der Kategorie `zuordnungskonflikt` werden ebenfalls zur Prüfung importiert.
-EGIDs aus der Eingabespalte `EGID_zugeteilt` sind wie automatische Zuteilungen
-für die manuelle Vergabe gesperrt. Die Kategorie `manuell_zugeteilt` wird nicht
-als neuer Prüffall importiert. Bereits in der Datenbank vorhandene Fälle werden
+Historische Fälle der Kategorie `zuordnungskonflikt` bleiben importierbar. Ein
+Eintrag in `EGID zusammengeführt` allein sperrt die EGID nicht; dieselbe EGID
+darf mehreren GVBSIDs zugeordnet sein. Automatische Zuordnungen bleiben wie bisher
+gesperrt. Gespeicherte Sperren aus früheren Importen werden nicht automatisch
+entfernt. Die Kategorie `manuell_zugeteilt` wird nicht als neuer Prüffall importiert.
+Bereits in der Datenbank vorhandene Fälle werden
 beim erneuten Import nicht automatisch entfernt oder abgeschlossen.
 
 Für den Import wird die **vollständige Matching-Datei mit dem Blatt `Matching`**

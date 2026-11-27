@@ -20,6 +20,7 @@ DEFAULT_OUTPUT = Path("gebaeude_egid_matching.xlsx")
 TEST_OUTPUT_NAME = "gebaeude_egid_matching_TEST.xlsx"
 BASEL_STADT_MUNICIPALITIES = (2701, 2702, 2703)  # Basel, Bettingen, Riehen (BFS).
 INPUT_SHEET = "Lieferung GVBS"
+ASSIGNED_EGID_COLUMN = "EGID zusammengeführt"
 REQUIRED = (
     "Kontrollnummer",
     "Gebäudenummer",
@@ -146,13 +147,8 @@ CATEGORIES = [
     ),
     (
         "manuell_zugeteilt",
-        "In der Eingabespalte EGID_zugeteilt ist bereits mindestens eine EGID hinterlegt.",
+        "In der Eingabespalte EGID zusammengeführt ist bereits mindestens eine EGID hinterlegt.",
         "Keine weitere automatische Zuordnung; vorhandene Zuteilung bleibt erhalten.",
-    ),
-    (
-        "zuordnungskonflikt",
-        "Mindestens eine direkte oder Suffix-EGID ist bereits in EGID_zugeteilt eingetragen.",
-        "Keine automatische Zuordnung; Konflikt manuell prüfen.",
     ),
 ]
 AUTO_CATEGORIES = {
@@ -792,11 +788,11 @@ def manual_egids(value):
     """Validiert vorhandene EGID-Zuteilungen ohne Datenzugriff."""
     tokens = identifiers(value)
     if txt(value) and not tokens:
-        raise ValueError("EGID_zugeteilt muss positive EGIDs enthalten, getrennt durch Komma, Semikolon oder Zeilenumbruch.")
+        raise ValueError("EGID zusammengeführt muss positive EGIDs enthalten, getrennt durch Komma, Semikolon oder Zeilenumbruch.")
     try:
         return {egid_text(token) for token in tokens}
     except ValueError as error:
-        raise ValueError("Ungültige EGID in EGID_zugeteilt; erwartet werden positive ganze Zahlen.") from error
+        raise ValueError("Ungültige EGID in EGID zusammengeführt; erwartet werden positive ganze Zahlen.") from error
 
 
 def _match_regular(
@@ -810,8 +806,7 @@ def _match_regular(
         {COLUMN_ALIASES.get(column, column): value for column, value in record.items()}
         for record in records
     ]
-    manual_assignments = [manual_egids(record.get("EGID_zugeteilt")) for record in matching_records]
-    reserved = set().union(*manual_assignments)
+    manual_assignments = [manual_egids(record.get(ASSIGNED_EGID_COLUMN)) for record in matching_records]
     # --------------------------------------------------------
     # GVBS-ADRESSEN UND GVBSIDs AUFBEREITEN
     # --------------------------------------------------------
@@ -1092,15 +1087,9 @@ def _match_regular(
     apply_suffix_pairs(matching_records, keys, gvbs_keys, results, conflicts_by_row,
                        addr_egids, gvbs_by_egid, egid_addresses, egid_grids, grid_egids)
     for result, own in zip(results, manual_assignments, strict=True):
-        candidates = {egid_text(value) for name in ("EGID-Kandidaten", "EGID mit Hausnummernzusatz")
-                      for value in identifiers(result.get(name))}
-        conflict = candidates & reserved
         if own:
             result["Matching-Kategorie"] = "manuell_zugeteilt"
             explanation = "Bereits manuell zugeteilt: " + ", ".join(sorted(own, key=int)) + ". Keine weitere automatische Zuordnung."
-        elif conflict:
-            result["Matching-Kategorie"] = "zuordnungskonflikt"
-            explanation = "Bereits bei einer anderen GVBSID manuell zugeteilte EGID: " + ", ".join(sorted(conflict, key=int)) + ". Keine automatische Zuordnung; manuell prüfen."
         else:
             continue
         result["Matching-Zusammenfassung"] = (explanation + " Direkte EGID-Kandidaten: "

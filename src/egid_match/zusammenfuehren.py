@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
 
 from .common import egid_text, txt
-from .matching import CATEGORIES, COLUMN_ALIASES, gvbsid_text, manual_egids
+from .matching import ASSIGNED_EGID_COLUMN, CATEGORIES, COLUMN_ALIASES, gvbsid_text, manual_egids
 
 
 def _headers(sheet, required):
@@ -47,8 +47,6 @@ def merge_workbooks(original, matching, manual):
     canonical = [COLUMN_ALIASES.get(name, name) for name in input_headers]
     if len(canonical) != len(set(canonical)) or any(canonical.count(name) != 1 for name in ("Kontrollnummer", "Gebäudenummer")):
         raise ValueError("Die Eingabe benötigt eindeutige Spalten Kontrollnummer und Gebäudenummer.")
-    if any(name in input_headers for name in ("EGID zusammengeführt", "zugeteilt aus")):
-        raise ValueError("Die Eingabe enthält bereits eine Ausgabespalte 'EGID zusammengeführt' oder 'zugeteilt aus'.")
     if any(name.casefold() in {sheet.casefold() for sheet in original.sheetnames}
            for name in ("Zuteileung_EGID_GVBS", "Zusammenfassung")):
         raise ValueError("Die Eingabe enthält bereits ein Ausgabe-Blatt 'Zuteileung_EGID_GVBS' oder 'Zusammenfassung'.")
@@ -63,8 +61,8 @@ def merge_workbooks(original, matching, manual):
                             row[canonical.index("Gebäudenummer")].value,
                             gvbsid_text((control, building)) if control and building else None))
         if not control or not building:
-            if "EGID_zugeteilt" in input_headers and txt(row[input_headers.index("EGID_zugeteilt")].value):
-                raise ValueError("Eine Zeile mit EGID_zugeteilt benötigt Kontrollnummer und Gebäudenummer.")
+            if ASSIGNED_EGID_COLUMN in input_headers and txt(row[input_headers.index(ASSIGNED_EGID_COLUMN)].value):
+                raise ValueError("Eine Zeile mit EGID zusammengeführt benötigt Kontrollnummer und Gebäudenummer.")
             continue
         gvbsid = gvbsid_text((control, building))
         if gvbsid in ids:
@@ -72,8 +70,8 @@ def merge_workbooks(original, matching, manual):
         ids[gvbsid] = row[0].row
 
     assignments = {}
-    if "EGID_zugeteilt" in input_headers:
-        index = input_headers.index("EGID_zugeteilt") + 1
+    if ASSIGNED_EGID_COLUMN in input_headers:
+        index = input_headers.index(ASSIGNED_EGID_COLUMN) + 1
         for gvbsid, row_number in ids.items():
             for egid in manual_egids(source.cell(row_number, index).value):
                 _add(assignments, gvbsid, egid, "manuell")
@@ -104,13 +102,15 @@ def merge_workbooks(original, matching, manual):
     if missing:
         raise ValueError("Zuteilungen enthalten GVBSIDs, die in der ursprünglichen Eingabe fehlen: " + ", ".join(sorted(missing)))
     output = original
-    egid_col = source.max_column + 1
-    source.cell(1, egid_col, "EGID zusammengeführt")
-    source.cell(1, egid_col + 1, "zugeteilt aus")
-    for gvbsid, values in assignments.items():
+    egid_col = input_headers.index(ASSIGNED_EGID_COLUMN) + 1 if ASSIGNED_EGID_COLUMN in input_headers else source.max_column + 1
+    source.cell(1, egid_col, ASSIGNED_EGID_COLUMN)
+    source_col = input_headers.index("zugeteilt aus") + 1 if "zugeteilt aus" in input_headers else source.max_column + 1
+    source.cell(1, source_col, "zugeteilt aus")
+    for gvbsid, row_number in ids.items():
+        values = assignments.get(gvbsid, {})
         egids = sorted(values, key=int)
-        source.cell(ids[gvbsid], egid_col, ", ".join(egids))
-        source.cell(ids[gvbsid], egid_col + 1, ", ".join(values[egid] for egid in egids))
+        source.cell(row_number, egid_col).value = ", ".join(egids) or None
+        source.cell(row_number, source_col).value = ", ".join(values[egid] for egid in egids) or None
     result = output.create_sheet("Zuteileung_EGID_GVBS")
     result.append(["Kontrollnummer", "Gebäudenummer", "EGID_zusammengeführt", "EGID_zugeteil_aus"])
     counts = Counter()

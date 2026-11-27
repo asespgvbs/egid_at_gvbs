@@ -12,7 +12,7 @@ from egid_match.zusammenfuehren import merge_workbooks, main
 
 def workbooks():
     original = Workbook()
-    original.active.append(["Kontrollnummer", "Gebäudenummer", "EGID_zugeteilt", "Testwert"])
+    original.active.append(["Kontrollnummer", "Gebäudenummer", "EGID zusammengeführt", "Testwert"])
     original.active.append(["SYNTHETIC-A", 0, None, "bleibt"])
     original.active.append(["SYNTHETIC-B", 1, "901, 902", "bleibt"])
     original.active.append(["SYNTHETIC-C", 0, None, "bleibt"])
@@ -49,8 +49,9 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(rows[3][-2:], (None, None))
         self.assertEqual(rows[2][:2], ("SYNTHETIC-B", 1))
         self.assertEqual(book.sheetnames, ["Sheet", "Weitere Angaben", "Zuteileung_EGID_GVBS", "Zusammenfassung"])
-        self.assertEqual(list(book.active.values)[0][-2:], ("EGID zusammengeführt", "zugeteilt aus"))
-        self.assertEqual(list(book.active.values)[1][-2:], ("900, 903", "perfect_match, manuell"))
+        original_rows = list(book.active.values)
+        self.assertEqual(original_rows[0], ("Kontrollnummer", "Gebäudenummer", "EGID zusammengeführt", "Testwert", "zugeteilt aus"))
+        self.assertEqual((original_rows[1][2], original_rows[1][4]), ("900, 903", "perfect_match, manuell"))
         summary = list(book["Zusammenfassung"].values)
         self.assertEqual(summary[0], ("Zuteilungsquelle", "Anzahl", "Prozent", "Prozent kumuliert"))
         self.assertEqual([row[0] for row in summary[1:-1]],
@@ -86,6 +87,16 @@ class MergeTests(unittest.TestCase):
         self.books[0].active.append(["SYNTHETIC-A", 0, None, "doppelt"])
         with self.assertRaisesRegex(ValueError, "mehrfach"):
             merge_workbooks(*self.books)
+
+    def test_reuses_existing_assignment_and_source_columns(self):
+        self.books[0].active.cell(1, 5, "zugeteilt aus")
+        self.books[0].active.cell(4, 5, "veraltet")
+        book = merge_workbooks(*self.books)
+        rows = list(book.active.values)
+        self.assertEqual(len(rows[0]), 5)
+        self.assertEqual(rows[1][2], "900, 903")
+        self.assertEqual(rows[1][4], "perfect_match, manuell")
+        self.assertIsNone(rows[3][4])
 
     def test_original_cannot_be_output(self):
         inputs = (Path("synthetic-original.xlsx"), Path("synthetic-matching.xlsx"), Path("synthetic-manual.xlsx"))

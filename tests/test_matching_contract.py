@@ -62,54 +62,74 @@ class MatchingContractTests(SyntheticMemory):
         for index, sheet in enumerate(workbook.worksheets):
             sheet.title = f"SYNTHETIC-TABLE-{index}"
 
-    def test_manual_assignment_is_reserved_and_conflict_is_imported(self):
+    def test_same_egid_as_existing_manual_assignment_does_not_cause_conflict(self):
         fixture = synthetic_pair((None,), (0,))
-        fixture[0][0]["EGID_zugeteilt"] = "900000001; 900000010"
-        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OTHER", "EGID_zugeteilt": ""})
+        fixture[0][0]["EGID zusammengeführt"] = "900000001; 900000010"
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OTHER", "EGID zusammengeführt": ""})
         results = matching.match(*fixture)
-        self.assertEqual([row["Matching-Kategorie"] for row in results], ["manuell_zugeteilt", "zuordnungskonflikt"])
-        self.assertTrue(all(row["EGID"] is None and row["Automatische Zuordnung"] == "Nein" for row in results))
-        self.assertIn("900000001", results[1]["Matching-Zusammenfassung"])
-        workbook = matching.Workbook()
-        self.addCleanup(workbook.close)
-        with patch.object(matching, "Workbook", return_value=workbook), patch.object(workbook, "save"):
-            matching.save_excel(self.folder / "synthetic.xlsx", list(fixture[0][0]), results, fixture[0])
-        summary = {row[0].value: row for row in workbook["Zusammenfassung"].iter_rows(min_row=2)}
-        self.assertTrue(all(cell.fill.fgColor.rgb == "00FF0000" for cell in summary["zuordnungskonflikt"]))
-        self.assertEqual(workbook["manuell_zugeteilt"]["A2"].fill.fgColor.rgb, "00D9D9D9")
-        self.assertEqual(workbook["zuordnungskonflikt"]["A2"].fill.fgColor.rgb, "00FF0000")
-        destination = self.empty_store()
-        self.assertEqual(self.import_workbook(destination, workbook), 1)
-        self.assertEqual(destination.automatic_egids(), {"900000001", "900000010"})
-        record = destination.records()[0]
-        self.assertEqual(record["raw"]["Matching-Kategorie"], "zuordnungskonflikt")
-        with self.assertRaisesRegex(store.ReviewError, "zugeteilt"):
-            destination.save([{"gvbsid": record["gvbsid"], "version": record["version"],
-                               "assigned": ["900000001"]}], {"900000001"})
+        self.assertEqual(results[0]["Matching-Kategorie"], "manuell_zugeteilt")
+        self.assertEqual(results[1]["Matching-Kategorie"], "review_address_suffix")
+        self.assertTrue(all(row["Matching-Kategorie"] != "zuordnungskonflikt" for row in results))
 
-    def test_reserved_suffix_prevents_automatic_pair_assignment(self):
+    def test_automatic_matching_may_share_egid_with_existing_manual_assignment(self):
+        fixture = synthetic_pair((None,), (0,), ())
+        fixture[0][0]["EGID zusammengeführt"] = 900000001
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OTHER", "EGID zusammengeführt": ""})
+        results = matching.match(*fixture)
+        self.assertEqual(results[0]["Matching-Kategorie"], "manuell_zugeteilt")
+        self.assertEqual(results[1]["Matching-Kategorie"], "oneEgid_oneAddress_multipleGVBSIDs")
+        self.assertEqual(results[1]["EGID"], 900000001)
+        self.assertEqual(results[1]["Automatische Zuordnung"], "Ja")
+
+    def test_existing_manual_suffix_does_not_prevent_automatic_pair_assignment(self):
         fixture = synthetic_pair((400, 100))
         fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OWNER",
-                           "Hausnummer": 99, "EGID_zugeteilt": 900000002})
+                           "Hausnummer": 99, "EGID zusammengeführt": 900000002})
         results = matching.match(*fixture)
         self.assertEqual([row["Matching-Kategorie"] for row in results],
-                         ["zuordnungskonflikt", "zuordnungskonflikt", "manuell_zugeteilt"])
-        self.assertTrue(all(row["EGID"] is None for row in results))
+                         [matching.SUFFIX_PAIR_AUTO, matching.SUFFIX_PAIR_AUTO, "manuell_zugeteilt"])
+        self.assertEqual([row["EGID"] for row in results], [900000001, 900000002, None])
+
+    def test_several_manual_owners_do_not_produce_conflict(self):
+        fixture = synthetic_pair((None,), (0,))
+        fixture[0][0]["EGID zusammengeführt"] = "900000001"
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OWNER-2", "Hausnummer": 99})
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "SYNTHETIC-OTHER", "EGID zusammengeführt": ""})
+        result = matching.match(*fixture)[2]
+        self.assertNotEqual(result["Matching-Kategorie"], "zuordnungskonflikt")
+
+    def test_manual_owner_without_valid_gvbsid_does_not_produce_conflict(self):
+        fixture = synthetic_pair((None,), (0,))
+        fixture[0].append({**fixture[0][0], "Kontrollnummer": "", "EGID zusammengeführt": "900000001"})
+        result = matching.match(*fixture)[0]
+        self.assertNotEqual(result["Matching-Kategorie"], "zuordnungskonflikt")
 
     def test_invalid_manual_egid_is_rejected(self):
         fixture = synthetic_pair((None,), (0,))
         for value in ("abc", "1.2", ",;", -1):
             with self.subTest(value=value):
-                fixture[0][0]["EGID_zugeteilt"] = value
+                fixture[0][0]["EGID zusammengeführt"] = value
                 with self.assertRaisesRegex(ValueError, "EGID"):
                     matching.match(*fixture)
 
-    def test_summary_does_not_color_zero_conflicts(self):
+    def test_old_column_name_is_not_used_for_reserved_egids(self):
+        fixture = synthetic_pair((None,), (0,))
+        fixture[0][0]["EGID_zugeteilt"] = 900000001
+        result = matching.match(*fixture)[0]
+        self.assertEqual(result["Matching-Kategorie"], matching.SUFFIX_SINGLE_REVIEW)
+        self.assertEqual(result["EGID"], 900000001)
+
+    def test_summary_has_no_obsolete_conflict_category(self):
         workbook, _, _ = self.workbook()
-        row = next(row for row in workbook["Zusammenfassung"].iter_rows(min_row=2)
-                   if row[0].value == "zuordnungskonflikt")
-        self.assertEqual(row[1].value, 0)
-        self.assertTrue(all(cell.fill.patternType is None for cell in row))
+        labels = [row[0].value for row in workbook["Zusammenfassung"].iter_rows(min_row=2)]
+        self.assertNotIn("zuordnungskonflikt", labels)
+
+    def test_manual_egid_is_not_added_to_automatic_locks(self):
+        workbook, _, _ = self.workbook()
+        sheet = workbook["Matching"]
+        sheet.cell(1, sheet.max_column + 1, matching.ASSIGNED_EGID_COLUMN)
+        sheet.cell(2, sheet.max_column, "900000001")
+        self.assertEqual(store.read_automatic_egids(workbook), {"900000050"})
 
     def test_export_to_import_preserves_original_values_decisions_and_global_locks(self):
         workbook, _, _ = self.workbook()

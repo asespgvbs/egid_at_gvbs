@@ -113,16 +113,16 @@ Bei älteren Dateien ohne `Hausnummer Zusatz` gilt der Zusatz als leer.
 
 Alle oben aufgeführten Spalten ausser `Hausnummer Zusatz` müssen vorhanden sein.
 Doppelte Spaltennamen, auch durch die aufgeführten Aliasnamen, werden abgelehnt.
-Die optionale Eingabespalte `EGID_zugeteilt` darf an beliebiger Stelle stehen.
+Die optionale Eingabespalte `EGID zusammengeführt` darf an beliebiger Stelle stehen.
+Die bisherige Bezeichnung `EGID_zugeteilt` wird für das Matching nicht mehr
+ausgewertet.
 Sie enthält bereits manuell vergebene positive EGIDs; mehrere Werte werden durch
 Komma, Semikolon oder Zeilenumbruch getrennt. Ungültige Einträge führen zu einem
 Fehler. Eine Zeile mit Eintrag erhält `manuell_zugeteilt` und keine weitere
-automatische Zuteilung. Betrifft eine solche EGID bei einer anderen Zeile einen
-direkten oder Suffix-Kandidaten, erhält diese `zuordnungskonflikt` und keine
-automatische Zuteilung. Die Konflikte werden im Zuordnungstool zur Prüfung geladen;
-die bereits vergebenen EGIDs sind dort gesperrt. `manuell_zugeteilt` wird grau,
-`zuordnungskonflikt` rot dargestellt; in den Zusammenfassungen bleibt eine
-Konfliktzeile mit Anzahl 0 ungefärbt. Fehlt die Spalte oder ist sie leer, bleibt
+automatische Zuteilung. Dieselbe EGID darf auch anderen GVBSIDs zugeordnet sein;
+ein solcher Eintrag führt nicht zu einem Zuordnungskonflikt und sperrt für sich
+allein keine EGID im Zuordnungstool. `manuell_zugeteilt` wird grau dargestellt.
+Fehlt die Spalte oder ist sie leer, bleibt
 das bisherige Verhalten erhalten. Der bereits eingetragene Wert bleibt in der
 Eingabespalte erhalten; die Matching-Spalte `EGID` wird für diese Zeile nicht
 zusätzlich befüllt.
@@ -133,7 +133,8 @@ aktualisiert und gespeicherte manuelle Entscheidungen beibehalten. Fälle, die
 in der neuen Datei fehlen oder inzwischen automatisch beziehungsweise manuell
 zugeteilt sind, werden nicht automatisch entfernt oder abgeschlossen. Die
 Sperrliste wird bei erneutem Import ergänzt; zuvor gespeicherte Sperren werden
-nicht automatisch entfernt. Die App überwacht die Excel-Datei nicht; für neue
+nicht automatisch entfernt. Dazu können auch Sperren aus älteren Importen gehören,
+die allein auf einer früheren manuellen Zuteilung beruhten. Die App überwacht die Excel-Datei nicht; für neue
 Fälle ist ein erneuter Import erforderlich. Enthält die Matching-Datei keine
 importierbaren Prüffälle, meldet die App dies und führt keinen Import aus.
 
@@ -189,8 +190,8 @@ vorhanden ist und kein Hausnummernzusatzkonflikt besteht. Bei Prüffällen
 und fehlenden Treffern bleibt die EGID leer.
 
 Jede Zeile erhält genau eine Kategorie. Nach der regulären Adressprüfung und
-einer allfälligen Paarprüfung haben `manuell_zugeteilt` und anschliessend
-`zuordnungskonflikt` Vorrang vor dem vorläufigen Ergebnis.
+einer allfälligen Paarprüfung hat `manuell_zugeteilt` für bereits eingetragene
+Zuteilungen Vorrang vor dem vorläufigen Ergebnis.
 
 Für die Suffixprüfung zählen ausschliesslich Punkt-Zahl-Zusätze wie `30.1`,
 `30.2` oder `30.12`. `30a`, `30A` und `30B` gelten als eigenständige Adressen
@@ -311,7 +312,8 @@ Eingabedateien sein.
 
 Der Abgleich erfolgt anhand der aus Kontrollnummer und Gebäudenummer gebildeten
 GVBSID. Die ursprünglichen Tabellen bleiben erhalten. Das aktive Eingabeblatt
-erhält zusätzlich die Spalten `EGID zusammengeführt` und `zugeteilt aus`.
+erhält die Spalten `EGID zusammengeführt` und `zugeteilt aus`; vorhandene
+gleichnamige Spalten werden für die Ausgabe weiterverwendet.
 Das zusätzliche Blatt `Zuteileung_EGID_GVBS` enthält ausschliesslich die Spalten
 `Kontrollnummer`, `Gebäudenummer`, `EGID_zusammengeführt` und `EGID_zugeteil_aus`.
 Das Blatt `Zusammenfassung` zeigt die Anzahl, den prozentualen Anteil und den
@@ -321,7 +323,7 @@ eine Gruppe gezählt. Die Reihenfolge folgt den Matching-Kategorien; Kombination
 werden bei ihrer in dieser Reihenfolge frühesten Kategorie einsortiert, `manuell`
 bei `manuell_zugeteilt`.
 Zeilen ohne Zuteilung erscheinen zuletzt als `Nicht zugeteilt`.
-Zuteilungen aus der optionalen Eingabespalte `EGID_zugeteilt` werden als
+Zuteilungen aus der optionalen Eingabespalte `EGID zusammengeführt` werden als
 `manuell` übernommen. Auch gespeicherte Zuordnungen aus offenen oder als
 Sonderfall markierten Fällen werden berücksichtigt. Nicht gespeicherte Änderungen
 aus dem Browser sind nicht im Export enthalten.
@@ -332,7 +334,7 @@ für automatische Zuteilungen und `manuell` für bestehende oder aus dem
 Zuordnungstool exportierte Zuteilungen. Ohne Zuteilung bleiben beide Felder leer.
 Doppelte GVBSIDs in der Eingabe, Zuteilungen ohne passende Eingabezeile,
 widersprüchliche Quellen für dieselbe Beziehung sowie bereits vorhandene
-Ausgabespalten oder Ausgabeblätter
+Ausgabeblätter
 führen zu einem Fehler statt zu einer stillschweigenden Änderung.
 
 ## Eigenständige EGID-Abdeckung
@@ -406,7 +408,7 @@ bestimmt ausschliesslich für die Statistik diese Priorität die Hauptkategorie:
 9. `review_suffix_single_gvbsid_multiple_egid`
 10. `review_address_suffix`
 11. `invalid_gwr_data`
-12. `zuordnungskonflikt`
+12. `zuordnungskonflikt` (nur historische Matching-Daten)
 13. `manuell_zugeteilt`
 14. `kein direkter Adresstreffer`
 
@@ -421,5 +423,5 @@ direkten Kandidaten. Nicht zugeordnete Zusatzbeziehungen stehen im Blatt
 `EGID-ohne-GVBSID`.
 
 Die Abdeckungsstatistik zählt ausschliesslich tatsächlich im Matching automatisch
-eingetragene EGIDs als automatisch zugeordnet. Ein Wert aus `EGID_zugeteilt`
+eingetragene EGIDs als automatisch zugeordnet. Ein Wert aus `EGID zusammengeführt`
 allein erhöht diesen automatischen Zähler nicht.
